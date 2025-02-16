@@ -44,46 +44,40 @@ pub enum Action {
     PreviousPage,
     NextPage,
     LastPage,
-
+    Edit,
+    Delete,
 }
 
 /// Defines the key configuration for different actions.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct KeyConfig {
     // Direction keys for navigation
-    /// Key for moving left.
     pub left_key: char,     // Default: 'h'
-    /// Key for moving right.
     pub right_key: char,    // Default: 'l'
-    /// Key for moving up.
     pub up_key: char,       // Default: 'k'
-    /// Key for moving down.
     pub down_key: char,     // Default: 'j'
 
     // Direct pane access keys
-    /// Key to focus on the connections pane.
     pub connections_key: char,  // Default: 'c'
-    /// Key to focus on the query pane.
     pub query_key: char,        // Default: 'q'
-    /// Key to focus on the data/results pane.
     pub data_key: char,         // Default: 'd'
+                                //
     /// Key to trigger sorting in results pane.
     pub sort_key: char,         // Default: 's'
 
     // Tab navigation keys
-    /// Key to select the next result tab.
     pub next_tab_key: char,     // Default: 'n'
-    /// Key to select the previous result tab.
     pub prev_tab_key: char,     // Default: 'p'
 
-    /// Key for first page
+    /// page navigation keys
     pub first_page_key: char,     // Default: 'g'
-    /// Key for last page
     pub last_page_key: char,      // Default: 'G'
-    /// Key for next page
     pub next_page_key: char,      // Default: 'n'
-    /// Key for previous page
     pub prev_page_key: char,      // Default: 'p'
+                                  //
+    // Edit and delete keys
+    pub edit_key: char,          // Default: 'e'
+    pub delete_key: char,        // Default: 'd'
 
     /// Modifier key to use for pane switching (Ctrl, Alt, Shift).
     pub pane_modifier: PaneModifier,
@@ -113,6 +107,10 @@ impl Default for KeyConfig {
             last_page_key: 'G',
             next_page_key: ',',
             prev_page_key: '.',
+
+            // Edit and delete keys
+            edit_key: 'e',   // Default edit key
+            delete_key: 'd', // Default delete key
 
             pane_modifier: PaneModifier::Shift, // Shift key as default pane modifier
         }
@@ -156,6 +154,8 @@ impl KeyConfig {
                     c if c == self.sort_key => Some(Action::Sort),
                     c if c == self.next_tab_key => Some(Action::NextTab),
                     c if c == self.prev_tab_key => Some(Action::PreviousTab),
+                    c if c == self.edit_key => Some(Action::Edit),
+                    c if c == self.delete_key => Some(Action::Delete),
                     c if c == self.left_key => Some(Action::Navigation(NavigationAction::Direction(Direction::Left))),
                     c if c == self.right_key => Some(Action::Navigation(NavigationAction::Direction(Direction::Right))),
                     c if c == self.up_key => Some(Action::Navigation(NavigationAction::Direction(Direction::Up))),

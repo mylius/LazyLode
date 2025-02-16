@@ -51,6 +51,8 @@ lazylode
 ### Connection Management
 
 - a: Add new connection
+- e: Edit connection
+- d: Delete connection
 - In connection form:
   - Tab/Up/Down: Navigate fields
   - Enter: Save connection

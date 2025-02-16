@@ -18,9 +18,9 @@ use ratatui::{
     Terminal,
 };
 
-use crate::app::{App, InputMode, ActiveBlock};
+use crate::app::{App, InputMode, ActiveBlock, ConnectionForm};
 use crate::ui::types::{Pane, Direction};
-use crate::input::{Action, NavigationAction, TreeAction};
+use crate::input::{Action, NavigationAction};
 
 
 #[tokio::main]
@@ -225,6 +225,34 @@ async fn handle_connections_input_normal_mode(key: KeyEvent, app: &mut App) -> R
                 if let Err(e) = app.handle_tree_action(tree_action).await {
                     logging::error(&format!("Error in tree action: {}", e));
                 }
+            },
+            Action::Edit => {
+                if let Some(index) = app.selected_connection_idx {
+                    let connection = &app.saved_connections[index];
+                    app.connection_form = ConnectionForm {
+                        name: connection.name.clone(),
+                        db_type: connection.db_type.clone(),
+                        host: connection.host.clone(),
+                        port: connection.port.to_string(),
+                        username: connection.username.clone(),
+                        password: connection.password.clone().unwrap_or_default(),
+                        database: connection.database.clone(),
+                        editing_index: Some(index), 
+                        current_field: 0,
+                        ssh_enabled: connection.ssh_tunnel.is_some(),
+                        ssh_host: connection.ssh_tunnel.clone().unwrap_or_default().host,
+                        ssh_username: connection.ssh_tunnel.clone().unwrap_or_default().username,
+                        ssh_port: connection.ssh_tunnel.clone().unwrap_or_default().port.to_string(),
+                        ssh_password: connection.ssh_tunnel.clone().unwrap_or_default().password.unwrap_or_default(),
+                        ssh_key_path: connection.ssh_tunnel.clone().unwrap_or_default().private_key_path.unwrap_or_default(),
+                    };
+                    app.show_connection_modal = true;
+                    app.active_block = ActiveBlock::ConnectionModal;
+                    app.input_mode = InputMode::Normal;
+                }
+            },
+            Action::Delete => { // Handle delete action
+                app.delete_connection();
             },
             _ => {}
         }

@@ -19,7 +19,7 @@ impl Default for DatabaseType {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct SSHConfig {
     pub host: String,
     pub port: u16,

@@ -15,54 +15,33 @@ use crate::database::{
 /// Represents the form data for creating or editing a database connection.
 #[derive(Default, Clone)]
 pub struct ConnectionForm {
-    /// The name of the connection.
     pub name: String,
-    /// The type of database (Postgres, MongoDB, etc.).
     pub db_type: DatabaseType,
-    /// The host address of the database server.
     pub host: String,
-    /// The port number of the database server.
     pub port: String,
-    /// The username for database authentication.
     pub username: String,
-    /// The password for database authentication.
     pub password: String,
-    /// The name of the database to connect to.
     pub database: String,
-    /// Whether SSH tunneling is enabled for this connection.
     pub ssh_enabled: bool,
-    /// The host address of the SSH server.
     pub ssh_host: String,
-    /// The port number of the SSH server.
     pub ssh_port: String,
-    /// The username for SSH authentication.
     pub ssh_username: String,
-    /// The password for SSH authentication.
     pub ssh_password: String,
-    /// The path to the SSH private key file.
     pub ssh_key_path: String,
-    /// The index of the currently focused field in the form.
     pub current_field: usize,
+    pub editing_index: Option<usize>,
 }
 
 /// Represents the query state for a single tab/table
 #[derive(Clone, Default)]
 pub struct QueryState {
-    /// The WHERE clause of the query
     pub where_clause: String,
-    /// The ORDER BY clause of the query
     pub order_by_clause: String,
-    /// Number of items per page
     pub page_size: u32,
-    /// Current page number
     pub current_page: u32,
-    /// Total number of pages
     pub total_pages: Option<u32>,
-    /// Total number of records
     pub total_records: Option<u64>,
-    /// Current sort column
     pub sort_column: Option<String>,
-    /// Current sort order (true for ascending)
     pub sort_order: Option<bool>,
 }
 
@@ -632,6 +611,51 @@ impl App {
         }
         Ok(())
     }
+
+    /// Edits an existing connection based on the data in `connection_form`.
+    pub fn edit_connection(&mut self) {
+        if let Some(index) = self.connection_form.editing_index {
+            let updated_connection = ConnectionConfig {
+                name: self.connection_form.name.clone(),
+                db_type: self.connection_form.db_type.clone(),
+                host: self.connection_form.host.clone(),
+                port: self.connection_form.port.parse().unwrap_or(5432),
+                username: self.connection_form.username.clone(),
+                password: Some(self.connection_form.password.clone()),
+                database: self.connection_form.database.clone(),
+                ssh_tunnel: None,
+            };
+
+            self.saved_connections[index] = updated_connection.clone();
+            self.config.save_connections(&self.saved_connections).expect("Failed to save connections");
+
+            // Update the connection tree
+            if let Some(tree_item) = self.connection_tree.get_mut(index) {
+                tree_item.connection_config = updated_connection;
+            }
+
+            self.connection_form = ConnectionForm::default();
+        }
+    }
+
+    pub fn delete_connection(&mut self) {
+        if let Some(index) = self.selected_connection_idx {
+            // Remove the connection from saved_connections
+            self.saved_connections.remove(index);
+            self.config.save_connections(&self.saved_connections).expect("Failed to save connections");
+
+            // Remove from connection tree
+            self.connection_tree.remove(index);
+
+            // Update the selected index
+            if self.connection_tree.is_empty() {
+                self.selected_connection_idx = None; // No connections left
+            } else if index >= self.connection_tree.len() {
+                self.selected_connection_idx = Some(self.connection_tree.len() - 1); // Select the last connection
+            }
+        }
+    }
+
 
 
     /// Calculates the total number of visible items in the connection tree.

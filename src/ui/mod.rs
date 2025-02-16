@@ -1,14 +1,14 @@
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Style, Modifier, Color},
-    text::{Line, Span, Text},
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Table, Row, Tabs, List, ListItem},
     Frame,
 };
 
 use ratatui::layout::Direction as LayoutDirection;
 
-use crate::app::{App, InputMode, QueryMode, ConnectionStatus};
+use crate::app::{App, InputMode, ConnectionStatus};
 use crate::logging;
 
 pub mod types;
