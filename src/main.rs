@@ -9,7 +9,7 @@ mod input;
 use std::io;
 use anyhow::{Result, Context};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -20,7 +20,7 @@ use ratatui::{
 
 use crate::app::{App, InputMode, ActiveBlock};
 use crate::ui::types::{Pane, Direction};
-use crate::input::{Action, NavigationAction};
+use crate::input::{Action, NavigationAction, TreeAction};
 
 
 #[tokio::main]
@@ -69,200 +69,39 @@ async fn main() -> Result<()> {
 
 async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
     loop {
-        terminal.draw(|f| ui::render(f, &app))?;
+        run_app_tick(terminal, &mut app).await?;
 
+        if app.should_quit {
+            return Ok(());
+        }
+    }
+}
 
-        if let Event::Key(key) = event::read()? {
-            match app.input_mode {
-                InputMode::Normal => {
-                    // **First handle the Shift + key (pane switching)**
-                    if let Some(action) = app.config.keymap.get_action(key.code, key.modifiers) {
-                       match action {
-                            Action::Navigation(nav_action) => {
-                                match nav_action {
-                                    NavigationAction::Direction(direction) => {
-                                        match app.active_pane {
-                                            Pane::Results => {
-                                                app.move_cursor_in_results(direction);
-                                            },
-                                            Pane::Connections => {
-                                                match direction {
-                                                    Direction::Up => app.move_selection_up(),
-                                                    Direction::Down => app.move_selection_down(),
-                                                    _ => {} // Left/Right handled by TreeAction
-                                                }
-                                            },
-                                            Pane::QueryInput => {
-                                                app.handle_navigation(nav_action);
-                                            },
-                                            _ => {}
-                                        }
-                                    },
-                                    NavigationAction::FocusPane(pane) => {
-                                        app.active_pane = pane;
-                                        // Reset cursor position when switching to Results pane
-                                        if pane == Pane::Results {
-                                            app.cursor_position = (0, 0);
-                                        }
-                                    }
-                                }
-                            }
-                            Action::TreeAction(tree_action) => {
-                                if let Err(e) = app.handle_tree_action(tree_action).await {
-                                    logging::error(&format!("Error in tree action: {}", e));
-                                }
-                            },
-                            Action::Sort => {
-                                // When sort key is pressed in Normal mode, trigger sort logic
-                                if let Err(e) = app.sort_results().await {
-                                    logging::error(&format!("Error sorting results: {}", e));
-                                }
-                            },
-                            Action::NextTab => {
-                                app.select_next_tab();
-                            },
-                            Action::PreviousTab => {
-                                app.select_previous_tab();
-                            },
-                            Action::FirstPage => {
-                                if let Err(e) = app.first_page().await {
-                                    logging::error(&format!("Error going to first page: {}", e));
-                                }
-                            },
-                            Action::LastPage => {
-                                if let Err(e) = app.last_page().await {
-                                    logging::error(&format!("Error going to last page: {}", e));
-                                }
-                            },
-                            Action::NextPage => {
-                                if let Err(e) = app.next_page().await {
-                                    logging::error(&format!("Error going to next page: {}", e));
-                                }
-                            },
-                            Action::PreviousPage => {
-                                if let Err(e) = app.previous_page().await {
-                                    logging::error(&format!("Error going to previous page: {}", e));
-                                }
-                            },
-                        }
-                    } else {
-                        // Handle other normal mode keys
-                        match key.code {
-                            KeyCode::Char('q') if key.modifiers.is_empty() => {
-                                app.quit();
-                            },
-                            KeyCode::Char('a') if key.modifiers.is_empty() => {
-                                app.show_connection_modal = true;
-                                app.active_pane = Pane::ConnectionModal;
-                            },
-                            KeyCode::Char('i') if key.modifiers.is_empty() => {
-                                app.input_mode = InputMode::Insert;
-                            },
-                            KeyCode::Char(':') if key.modifiers.is_empty() => {
-                                app.input_mode = InputMode::Command;
-                            },
-                            _ => {}
-                        }
-                    }
+async fn run_app_tick<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
+    terminal.draw(|f| ui::render(f, &app))?;
+
+    if let Event::Key(key) = event::read()? {
+        if KeyCode::Char('q') == key.code && key.modifiers.is_empty() {
+            app.quit();
+        }
+        if app.show_connection_modal {
+            match app.active_block {
+                ActiveBlock::ConnectionModal => {
+                    handle_connection_modal_input(key, app).await?;
                 },
-                    InputMode::Insert => {
-                    match app.active_block {
-                        ActiveBlock::ConnectionModal => {
-                            match key.code {
-                                KeyCode::Enter => {
-                                    // Save the connection (we'll implement this later)
-                                    app.save_connection(); // Call save_connection
-                                    app.toggle_connection_modal();
-                                }
-                                KeyCode::Char(c) => {
-                                    // Update the connection form based on the active field
-                                    match app.connection_form.current_field {
-                                        0 => app.connection_form.name.push(c),
-                                        1 => app.connection_form.host.push(c),
-                                        2 => app.connection_form.port.push(c),
-                                        3 => app.connection_form.username.push(c),
-                                        4 => app.connection_form.password.push(c),
-                                        5 => app.connection_form.database.push(c),
-                                        _ => {}
-                                    }
-                                }
-                                KeyCode::Backspace => {
-                                    // Handle backspace to delete characters
-                                    match app.connection_form.current_field {
-                                        0 => { app.connection_form.name.pop(); }
-                                        1 => { app.connection_form.host.pop(); }
-                                        2 => { app.connection_form.port.pop(); }
-                                        3 => { app.connection_form.username.pop(); }
-                                        4 => { app.connection_form.password.pop(); }
-                                        5 => { app.connection_form.database.pop(); }
-                                        _ => {}
-                                    }
-                                }
-                                KeyCode::Esc => {
-                                    // Handle escape to close the modal
-                                    app.toggle_connection_modal();
-                                }
-                                KeyCode::Down | KeyCode::Char('j') => {
-                                        app.connection_form.current_field = (app.connection_form.current_field + 1) % 6; // Cycle through 6 fields
-                                    }
-                                    KeyCode::Up | KeyCode::Char('k') => {
-                                       app.connection_form.current_field = (app.connection_form.current_field + 5) % 6; // Cycle backwards (add 5 to avoid negative modulo)
-                                    }
-                                _ => {}
-                            }
-                        }
-                        _ => {}
-                    }
-                    match app.active_pane {
-                        Pane::QueryInput => {
-                            match key.code {
-                                KeyCode::Esc => {
-                                    app.input_mode = InputMode::Normal;
-                                },
-                                KeyCode::Enter => {
-                                    if let Err(e) = app.refresh_results().await {
-                                        logging::error(&format!("Error refreshing results: {}", e));
-                                    }
-                                    app.input_mode = InputMode::Normal;
-                                },
-                                KeyCode::Char(c) => {
-                                    match c {
-                                        c if c == app.config.keymap.up_key => {
-                                            app.handle_navigation(NavigationAction::Direction(Direction::Up));
-                                        },
-                                        c if c == app.config.keymap.down_key => {
-                                            app.handle_navigation(NavigationAction::Direction(Direction::Down));
-                                        },
-                                        c if c == app.config.keymap.left_key => {
-                                            app.handle_navigation(NavigationAction::Direction(Direction::Left));
-                                        },
-                                        c if c == app.config.keymap.right_key => {
-                                            app.handle_navigation(NavigationAction::Direction(Direction::Right));
-                                        },
-                                        _ => app.insert_char(c),
-                                    }
-                                },
-                                KeyCode::Backspace => {
-                                    app.delete_char();
-                                },
-                                KeyCode::Up => {
-                                    app.handle_navigation(NavigationAction::Direction(Direction::Up));
-                                },
-                                KeyCode::Down => {
-                                    app.handle_navigation(NavigationAction::Direction(Direction::Down));
-                                },
-                                KeyCode::Left => {
-                                    app.handle_navigation(NavigationAction::Direction(Direction::Left));
-                                },
-                                KeyCode::Right => {
-                                    app.handle_navigation(NavigationAction::Direction(Direction::Right));
-                                },
-                                _ => {}
-                            }
-                        },
-                        _ => {}
-                    }
-                }
+                _ => {}
+            }
+        } else {
+            match app.active_pane {
+                Pane::Connections => {
+                    handle_connections_input(key, app).await?;
+                },
+                Pane::QueryInput => {
+                    handle_query_input(key, app).await?;
+                },
+                Pane::Results => {
+                    handle_results_input(key, app).await?;
+                },
                 _ => {}
             }
         }
@@ -271,5 +110,243 @@ async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>, mut a
             return Ok(());
         }
     }
+    Ok(())
 }
 
+async fn handle_connection_modal_input(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match app.input_mode {
+        InputMode::Normal => handle_connection_modal_input_normal_mode(key, app).await,
+        InputMode::Insert => handle_connection_modal_input_insert_mode(key, app).await,
+        _ => Ok(()), // Noop for other modes
+    }
+}
+
+async fn handle_connection_modal_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Char('i') => {
+            app.input_mode = InputMode::Insert;
+        },
+        KeyCode::Esc => {
+            app.toggle_connection_modal();
+        },
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.connection_form.current_field = (app.connection_form.current_field + 1) % 6;
+        },
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.connection_form.current_field = (app.connection_form.current_field + 5) % 6;
+        },
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_connection_modal_input_insert_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Esc => {
+            app.input_mode = InputMode::Normal;
+        },
+        KeyCode::Enter => {
+            app.save_connection();
+            app.toggle_connection_modal();
+            app.input_mode = InputMode::Normal;
+        },
+        KeyCode::Down | KeyCode::Up => {
+            match key.code {
+                KeyCode::Down => {
+                    app.connection_form.current_field = (app.connection_form.current_field + 1) % 6;
+                },
+                KeyCode::Up => {
+                    app.connection_form.current_field = (app.connection_form.current_field + 5) % 6;
+                },
+                _ => {}
+            }
+        },
+        KeyCode::Backspace => {
+            match app.connection_form.current_field {
+                0 => { app.connection_form.name.pop(); },
+                1 => { app.connection_form.host.pop(); },
+                2 => { app.connection_form.port.pop(); },
+                3 => { app.connection_form.username.pop(); },
+                4 => { app.connection_form.password.pop(); },
+                5 => { app.connection_form.database.pop(); },
+                _ => {}
+            }
+        },
+        KeyCode::Char(c) => {
+            // For port field, only allow numeric input
+            if app.connection_form.current_field == 2 {
+                if c.is_ascii_digit() {
+                    app.connection_form.port.push(c);
+                }
+            } else {
+                // For other fields, allow any character
+                match app.connection_form.current_field {
+                    0 => app.connection_form.name.push(c),
+                    1 => app.connection_form.host.push(c),
+                    3 => app.connection_form.username.push(c),
+                    4 => app.connection_form.password.push(c),
+                    5 => app.connection_form.database.push(c),
+                    _ => {}
+                }
+            }
+        },
+        _ => {}
+    }
+    Ok(())
+}
+
+
+async fn handle_connections_input(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match app.input_mode {
+        InputMode::Normal => handle_connections_input_normal_mode(key, app).await,
+        _ => Ok(()) // Noop for other modes
+    }
+}
+
+
+async fn handle_connections_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    if let Some(action) = app.config.keymap.get_action(key.code, key.modifiers) {
+        match action {
+            Action::Navigation(nav_action) => {
+                match nav_action {
+                    NavigationAction::Direction(direction) => {
+                        match direction {
+                            Direction::Up => app.move_selection_up(),
+                            Direction::Down => app.move_selection_down(),
+                            _ => {}
+                        }
+                    },
+                    NavigationAction::FocusPane(pane) => {
+                        app.active_pane = pane;
+                    }
+                }
+            },
+            Action::TreeAction(tree_action) => {
+                if let Err(e) = app.handle_tree_action(tree_action).await {
+                    logging::error(&format!("Error in tree action: {}", e));
+                }
+            },
+            _ => {}
+        }
+    } else {
+        match key.code {
+            KeyCode::Char('q') if key.modifiers.is_empty() => {
+                app.quit();
+            },
+            KeyCode::Char('a') if key.modifiers.is_empty() => {
+                app.show_connection_modal = true;
+                app.active_block = ActiveBlock::ConnectionModal;
+                app.input_mode = InputMode::Normal;
+            },
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+
+async fn handle_query_input(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match app.input_mode {
+        InputMode::Normal => handle_query_input_normal_mode(key, app).await,
+        InputMode::Insert => handle_query_input_insert_mode(key, app).await,
+        _ => Ok(()) // Noop for other modes
+    }
+}
+
+async fn handle_query_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    if let Some(action) = app.config.keymap.get_action(key.code, key.modifiers) {
+        match action {
+            Action::Navigation(nav_action) => {
+                app.handle_navigation(nav_action);
+            },
+            Action::Navigation(NavigationAction::FocusPane(pane)) => {
+                app.active_pane = pane;
+            },
+            _ => {}
+        }
+    } else {
+        match key.code {
+            KeyCode::Char('i') if key.modifiers.is_empty() => {
+                app.input_mode = InputMode::Insert;
+            },
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+async fn handle_query_input_insert_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Esc => {
+            app.input_mode = InputMode::Normal;
+        },
+        KeyCode::Enter => {
+            if let Err(e) = app.refresh_results().await {
+                logging::error(&format!("Error refreshing results: {}", e));
+            }
+            app.input_mode = InputMode::Normal;
+        },
+        KeyCode::Char(c) => app.insert_char(c),
+        KeyCode::Backspace => app.delete_char(),
+        KeyCode::Up => app.handle_navigation(NavigationAction::Direction(Direction::Up)),
+        KeyCode::Down => app.handle_navigation(NavigationAction::Direction(Direction::Down)),
+        KeyCode::Left => app.handle_navigation(NavigationAction::Direction(Direction::Left)),
+        KeyCode::Right => app.handle_navigation(NavigationAction::Direction(Direction::Right)),
+        _ => {}
+    }
+    Ok(())
+}
+
+
+async fn handle_results_input(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match app.input_mode {
+        InputMode::Normal => handle_results_input_normal_mode(key, app).await,
+        _ => Ok(()) // Noop for other modes
+    }
+}
+
+async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    if let Some(action) = app.config.keymap.get_action(key.code, key.modifiers) {
+        match action {
+            Action::Navigation(nav_action) => {
+                match nav_action {
+                    NavigationAction::Direction(direction) => {
+                        app.move_cursor_in_results(direction);
+                    },
+                    NavigationAction::FocusPane(pane) => {
+                        app.active_pane = pane;
+                    }
+                }
+            },
+            Action::Sort => {
+                if let Err(e) = app.sort_results().await {
+                    logging::error(&format!("Error sorting results: {}", e));
+                }
+            },
+            Action::FirstPage => {
+                if let Err(e) = app.first_page().await {
+                    logging::error(&format!("Error going to first page: {}", e));
+                }
+            },
+            Action::LastPage => {
+                if let Err(e) = app.last_page().await {
+                    logging::error(&format!("Error going to last page: {}", e));
+                }
+            },
+            Action::NextPage => {
+                if let Err(e) = app.next_page().await {
+                    logging::error(&format!("Error going to next page: {}", e));
+                }
+            },
+            Action::PreviousPage => {
+                if let Err(e) = app.previous_page().await {
+                    logging::error(&format!("Error going to previous page: {}", e));
+                }
+            },
+            Action::NextTab => app.select_next_tab(),
+            Action::PreviousTab => app.select_previous_tab(),
+            _ => {}
+        }
+    }
+    Ok(())
+}

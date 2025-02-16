@@ -40,7 +40,7 @@ pub fn init_logger() -> Result<()> {
     std::fs::create_dir_all(&log_dir).context("Failed to create log directory")?;
 
     let timestamp = Local::now().format("%Y%m%d_%H%M%S");
-    let log_file_path = log_dir.join(format!("lazyylode_{}.log", timestamp));
+    let log_file_path = log_dir.join(format!("lazylode_{}.log", timestamp));
     
     let file = OpenOptions::new()
         .create(true)

@@ -278,7 +278,6 @@ impl App {
         self.show_connection_modal = !self.show_connection_modal;
         if self.show_connection_modal {
             self.active_block = ActiveBlock::ConnectionModal;
-            self.input_mode = InputMode::Insert;
         } else {
             self.input_mode = InputMode::Normal;
         }
