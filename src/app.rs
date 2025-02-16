@@ -4,7 +4,7 @@ use crate::logging;
 use crate::input::{NavigationAction,TreeAction};
 use crate::ui::types::{Direction, Pane};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 use crate::config::Config;
 use crate::database::{
@@ -43,6 +43,7 @@ pub struct QueryState {
     pub total_records: Option<u64>,
     pub sort_column: Option<String>,
     pub sort_order: Option<bool>,
+    pub rows_marked_for_deletion: HashSet<usize>,
 }
 
 /// Represents the input mode of the application.
@@ -73,6 +74,7 @@ pub enum ActiveBlock {
     SchemaExplorer,
     /// The command input block.
     CommandInput,
+    DeletionConfirmModal,
 }
 
 /// Represents the query mode (free-form SQL or structured form).
@@ -161,48 +163,26 @@ pub struct SchemaTreeItem {
 /// The main application struct.
 #[derive(Clone)]
 pub struct App {
-    /// Indicates if the application should quit.
     pub should_quit: bool,
-    /// The currently active block in the UI.
     pub active_block: ActiveBlock,
-    /// Indicates if the connection modal is shown.
     pub show_connection_modal: bool,
-    /// List of saved database connections.
     pub saved_connections: Vec<ConnectionConfig>,
-    /// Index of the currently selected connection in the connections list.
     pub selected_connection_idx: Option<usize>,
-    /// Status of each saved connection, mapped by connection name.
     pub connection_statuses: HashMap<String, ConnectionStatus>,
-    /// Form data for creating new connections.
     pub connection_form: ConnectionForm,
-    /// Current input mode of the application.
     pub input_mode: InputMode,
-    /// Text content of the free-form query input.
     pub free_query: String,
-    /// List of result tabs, each containing a tab name and query result.
     pub result_tabs: Vec<(String, QueryResult, QueryState)>,
-    /// Application configuration.
     pub config: Config,
-    /// Status message to display in the status bar.
     pub status_message: Option<String>,
-    /// Text in the command input bar.
     pub command_input: String,
-    /// Map of established database connections, keyed by connection name.
     pub connections: HashMap<String, Box<dyn DatabaseConnection>>,
-    /// Cursor position in the current input area (row, column).
     pub cursor_position: (usize, usize),
-    /// Currently focused pane in the UI.
     pub active_pane: Pane,
-    /// Tree structure representing connections, databases, schemas, and tables.
     pub connection_tree: Vec<ConnectionTreeItem>,
-    /// Column to sort results by.
-    pub sort_column: Option<String>,
-    /// Sort order (ascending/descending).
-    pub sort_order: Option<bool>,
-    /// Information about the last fetched table (connection name, schema, table).
     pub last_table_info: Option<(String, String, String)>,
-    /// Index of the currently selected result tab.
     pub selected_result_tab_index: Option<usize>,
+    pub show_deletion_modal: bool,
 }
 
 impl App {
@@ -227,10 +207,9 @@ impl App {
             cursor_position: (0, 0),
             active_pane: Pane::default(),
             connection_tree: Vec::new(),
-            sort_column: None,
-            sort_order: None,
             last_table_info: None,
             selected_result_tab_index: None,
+            show_deletion_modal: false,
         };
 
         app.load_connections();
@@ -421,6 +400,8 @@ impl App {
                     _ => {} // Handle other panes as before
                 }
             },
+            NavigationAction::NextTab =>  self.select_next_tab(),
+            NavigationAction::PreviousTab => self.select_previous_tab(),
             _ => {} // Handle other actions as before
         }
     }
@@ -1142,15 +1123,116 @@ impl App {
         Ok(())
     }
 
-    /// Update page size from command input
-    pub async fn handle_page_size_command(&mut self, command: &str) -> Result<()> {
-        if let Some(size_str) = command.strip_prefix("page-size ") {
-            if let Ok(size) = size_str.trim().parse::<u32>() {
-                if size > 0 {
-                    self.set_page_size(size).await?;
+pub fn toggle_row_deletion_mark(&mut self) {
+        if let Some(result_tab_index) = self.selected_result_tab_index {
+            if let Some((_, _, state)) = self.result_tabs.get_mut(result_tab_index) {
+                let row_index = self.cursor_position.1;
+                if state.rows_marked_for_deletion.contains(&row_index) {
+                    state.rows_marked_for_deletion.remove(&row_index);
+                } else {
+                    state.rows_marked_for_deletion.insert(row_index);
                 }
             }
         }
-        Ok(())
     }
+
+    pub fn get_deletion_preview(&self) -> Option<Vec<Vec<String>>> {
+        self.selected_result_tab_index.and_then(|idx| {
+            self.result_tabs.get(idx).map(|(_, result, state)| {
+                state.rows_marked_for_deletion.iter()
+                    .filter_map(|&row_idx| result.rows.get(row_idx))
+                    .cloned()
+                    .collect()
+            })
+        })
+    }
+
+    pub async fn confirm_deletions(&mut self) -> Result<()> {
+        // First gather all the data we need
+        let delete_info = {
+            if let Some((conn_name, schema, table)) = &self.last_table_info {
+                if let Some((_, result, state)) = self.selected_result_tab_index
+                    .and_then(|idx| self.result_tabs.get(idx)) 
+                {
+                    let pk_column = &result.columns[0];
+                    let pk_values: Vec<String> = state.rows_marked_for_deletion.iter()
+                        .filter_map(|&row_idx| result.rows.get(row_idx))
+                        .filter_map(|row| row.first())
+                        .cloned()
+                        .collect();
+
+                    // Return the info we need for deletion
+                    Some((
+                        conn_name.clone(),
+                        schema.clone(),
+                        table.clone(),
+                        pk_column.clone(),
+                        pk_values
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
+        // Now perform the deletion if we have the info
+        if let Some((conn_name, schema, table, pk_column, pk_values)) = delete_info {
+            if !pk_values.is_empty() {
+                if let Some(db_connection) = self.connections.get(&conn_name) {
+                    let query = format!(
+                        "DELETE FROM {}.{} WHERE {} IN ({})",
+                        schema,
+                        table,
+                        pk_column,
+                        pk_values.join(", ")
+                    );
+
+                    match db_connection.execute_query(&query).await {
+                        Ok(_) => {
+                            // Clear deletion marks
+                            if let Some((_, _, state)) = self.selected_result_tab_index
+                                .and_then(|idx| self.result_tabs.get_mut(idx)) 
+                            {
+                                state.rows_marked_for_deletion.clear();
+                            }
+                            
+                            // Refresh results
+                            self.refresh_results().await?;
+                            
+                            self.status_message = Some(format!("Successfully deleted {} rows", pk_values.len()));
+                            logging::info(&format!("Successfully deleted {} rows from {}.{}", pk_values.len(), schema, table))?;
+                            
+                            Ok(())
+                        },
+                        Err(e) => {
+                            let error_msg = format!("Failed to delete rows: {}", e);
+                            self.status_message = Some(error_msg.clone());
+                            logging::error(&error_msg)?;
+                            Err(anyhow::anyhow!(error_msg))
+                        }
+                    }
+                } else {
+                    let error_msg = "Database connection not found".to_string();
+                    self.status_message = Some(error_msg.clone());
+                    Err(anyhow::anyhow!(error_msg))
+                }
+            } else {
+                Ok(())
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn clear_deletion_marks(&mut self) {
+        if let Some((_, _, state)) = self.selected_result_tab_index
+            .and_then(|idx| self.result_tabs.get_mut(idx)) 
+        {
+            state.rows_marked_for_deletion.clear();
+        }
+    }
+
+
 }

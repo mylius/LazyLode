@@ -13,6 +13,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use input::TreeAction;
 use ratatui::{
     backend::CrosstermBackend,
     Terminal,
@@ -213,12 +214,16 @@ async fn handle_connections_input_normal_mode(key: KeyEvent, app: &mut App) -> R
                         match direction {
                             Direction::Up => app.move_selection_up(),
                             Direction::Down => app.move_selection_down(),
+                            Direction::Right => if let Err(e) = app.handle_tree_action(TreeAction::Expand).await {
+                                logging::error(&format!("Error expanding connection: {}", e));
+                            },
                             _ => {}
                         }
                     },
                     NavigationAction::FocusPane(pane) => {
                         app.active_pane = pane;
-                    }
+                    },
+                    _ => {app.handle_navigation(nav_action);}
                 }
             },
             Action::TreeAction(tree_action) => {
@@ -334,6 +339,28 @@ async fn handle_results_input(key: KeyEvent, app: &mut App) -> Result<(), io::Er
 }
 
 async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    if app.show_deletion_modal {
+        match key.code {
+            KeyCode::Esc => {
+                app.show_deletion_modal = false;
+                if let Some((_, _, state)) = app.selected_result_tab_index
+                    .and_then(|idx| app.result_tabs.get_mut(idx)) 
+                {
+                    state.rows_marked_for_deletion.clear();
+                }
+            }
+            KeyCode::Enter => {
+                if let Err(e) = app.confirm_deletions().await {
+                    logging::error(&format!("Error confirming deletions: {}", e));
+                }
+                app.show_deletion_modal = false;
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
+
+
     if let Some(action) = app.config.keymap.get_action(key.code, key.modifiers) {
         match action {
             Action::Navigation(nav_action) => {
@@ -344,6 +371,7 @@ async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Resul
                     NavigationAction::FocusPane(pane) => {
                         app.active_pane = pane;
                     }
+                    _ => {app.handle_navigation(nav_action);}
                 }
             },
             Action::Sort => {
@@ -351,30 +379,41 @@ async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Resul
                     logging::error(&format!("Error sorting results: {}", e));
                 }
             },
-            Action::FirstPage => {
-                if let Err(e) = app.first_page().await {
-                    logging::error(&format!("Error going to first page: {}", e));
+            Action::Delete => {
+                app.toggle_row_deletion_mark();
+            },
+            Action::Confirm => {
+                if app.show_deletion_modal {
+                    // If deletion modal is shown, treat Enter as confirmation
+                    match app.confirm_deletions().await {
+                        Ok(_) => {
+                            app.show_deletion_modal = false;
+                        },
+                        Err(e) => {
+                            // Keep modal open on error so user can see what failed
+                            // Status message is already set in confirm_deletions
+                            logging::error(&format!("Error confirming deletions: {}", e));
+                        }
+                    }
+                } else if app.selected_result_tab_index
+                    .and_then(|idx| app.result_tabs.get(idx))
+                    .map(|(_, _, state)| !state.rows_marked_for_deletion.is_empty())
+                    .unwrap_or(false)
+                {
+                    // If rows are marked for deletion, show confirmation modal
+                    app.show_deletion_modal = true;
                 }
             },
-            Action::LastPage => {
-                if let Err(e) = app.last_page().await {
-                    logging::error(&format!("Error going to last page: {}", e));
+            Action::Cancel => {
+                if app.show_deletion_modal {
+                    app.show_deletion_modal = false;
+                    app.clear_deletion_marks();
+                    app.status_message = Some("Deletion cancelled".to_string());
                 }
             },
-            Action::NextPage => {
-                if let Err(e) = app.next_page().await {
-                    logging::error(&format!("Error going to next page: {}", e));
-                }
-            },
-            Action::PreviousPage => {
-                if let Err(e) = app.previous_page().await {
-                    logging::error(&format!("Error going to previous page: {}", e));
-                }
-            },
-            Action::NextTab => app.select_next_tab(),
-            Action::PreviousTab => app.select_previous_tab(),
             _ => {}
         }
-    }
+    }  
     Ok(())
 }
+

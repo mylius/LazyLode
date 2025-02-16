@@ -15,7 +15,7 @@ pub mod types;
 mod modal;
 
 pub use types::{Pane};
-pub use modal::render_connection_modal;
+pub use modal::{render_connection_modal, render_deletion_modal};
 
 
 /// Renders the entire UI of the application.
@@ -36,13 +36,15 @@ pub fn render(frame: &mut Frame, app: &App) {
         ])
         .split(frame.size());
 
-    render_status_bar(frame, app, chunks[0]); // Render the status bar at the top
-    render_main_content(frame, app, chunks[1]); // Render the main content area
-    render_command_bar(frame, app, chunks[2]); // Render the command bar at the bottom
+    render_status_bar(frame, app, chunks[0]);
+    render_main_content(frame, app, chunks[1]);
+    render_command_bar(frame, app, chunks[2]);
 
-    // Render modal if it's active
+    // Render appropriate modal if active
     if app.show_connection_modal {
         render_connection_modal(frame, app);
+    } else if app.show_deletion_modal {
+        render_deletion_modal(frame, app);
     }
 }
 
@@ -401,26 +403,28 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
                     row.iter()
                         .enumerate()
                         .map(|(col_idx, cell)| {
-                            if app.active_pane == Pane::Results &&
-                               row_idx == app.cursor_position.1 &&
-                               col_idx == app.cursor_position.0 {
-                                Span::styled(
-                                    cell.as_str(),
-                                    Style::default()
-                                        .fg(app.config.theme.text_color())
-                                        .bg(app.config.theme.accent_color())
-                                )
-                            } else {
-                                Span::styled(
-                                    cell.as_str(),
-                                    Style::default().fg(app.config.theme.text_color())
-                                )
-                            }
+                            let is_selected = app.active_pane == Pane::Results &&
+                                            row_idx == app.cursor_position.1 &&
+                                            col_idx == app.cursor_position.0;
+                            let is_marked = query_state.rows_marked_for_deletion.contains(&row_idx);
+                            
+                            let style = Style::default()
+                                .fg(app.config.theme.text_color())
+                                .bg(if is_marked {
+                                    Color::Rgb(139, 0, 0) // Dark red for marked rows
+                                } else if is_selected {
+                                    app.config.theme.accent_color()
+                                } else {
+                                    app.config.theme.surface0_color()
+                                });
+                            
+                            Span::styled(cell.as_str(), style)
                         })
                         .collect::<Vec<_>>()
                 )
             })
             .collect();
+
 
         let widths = vec![Constraint::Percentage(100 / header.len() as u16); header.len()];
 

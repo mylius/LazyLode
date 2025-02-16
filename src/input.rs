@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use crossterm::event::{KeyCode, KeyModifiers};
-use crate::ui::types::{Direction, Pane};
+use crate::{logging, ui::types::{Direction, Pane}};
 
 /// Represents modifier keys for pane switching.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -20,7 +20,9 @@ pub enum NavigationAction {
     Direction(Direction),
     /// Focus on a specific pane.
     FocusPane(Pane),
-}
+     NextTab,
+    PreviousTab,
+   }
 
 /// Represents actions related to the connection tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,14 +40,14 @@ pub enum Action {
     Navigation(NavigationAction),
     TreeAction(TreeAction),
     Sort,
-    NextTab,
-    PreviousTab,
     FirstPage,
     PreviousPage,
     NextPage,
     LastPage,
     Edit,
     Delete,
+    Confirm,
+    Cancel,
 }
 
 /// Defines the key configuration for different actions.
@@ -120,18 +122,15 @@ impl Default for KeyConfig {
 impl KeyConfig {
     /// Maps a key event to an `Action` based on the current key configuration.
     pub fn get_action(&self, code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
-        let is_pane_modifier = match self.pane_modifier { // Check if pane modifier is pressed
+        let is_pane_modifier = match self.pane_modifier {
             PaneModifier::Ctrl => modifiers.contains(KeyModifiers::CONTROL),
             PaneModifier::Alt => modifiers.contains(KeyModifiers::ALT),
             PaneModifier::Shift => modifiers.contains(KeyModifiers::SHIFT),
         };
-
-        // Handle Enter key for tree item expansion (without modifier)
-        if code == KeyCode::Enter && !is_pane_modifier {
-            return Some(Action::TreeAction(TreeAction::Expand));
-        }
-
+       
         match code {
+            KeyCode::Enter => Some(Action::Confirm),
+            KeyCode::Esc => Some(Action::Cancel),
             KeyCode::Char(c) => {
                 if is_pane_modifier {
                     // Pane switching actions (only with modifier)
@@ -149,11 +148,11 @@ impl KeyConfig {
                     // Normal mode actions (without modifier)
                     match c {
                     c if c == self.last_page_key => Some(Action::LastPage),
-                    c if c == self.next_page_key => Some(Action::NextPage),
+                    c if c == self.next_page_key =>  Some(Action::NextPage),
                     c if c == self.prev_page_key => Some(Action::PreviousPage),
                     c if c == self.sort_key => Some(Action::Sort),
-                    c if c == self.next_tab_key => Some(Action::NextTab),
-                    c if c == self.prev_tab_key => Some(Action::PreviousTab),
+                    c if c == self.next_tab_key => Some(Action::Navigation(NavigationAction::NextTab)),
+                    c if c == self.prev_tab_key => Some(Action::Navigation(NavigationAction::PreviousTab)),
                     c if c == self.edit_key => Some(Action::Edit),
                     c if c == self.delete_key => Some(Action::Delete),
                     c if c == self.left_key => Some(Action::Navigation(NavigationAction::Direction(Direction::Left))),
