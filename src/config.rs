@@ -1,9 +1,9 @@
-use anyhow::{Result, Context};
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use crate::theme::Theme;
 use crate::database::ConnectionConfig;
 use crate::input::KeyConfig;
+use crate::theme::Theme;
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Deserialize, Serialize)]
 pub struct ConfigFile {
@@ -36,17 +36,17 @@ impl Config {
         // Get the home directory
         let home = std::env::var("HOME").expect("Could not find HOME directory");
         let config_dir = PathBuf::from(home).join(".config").join("lazylode");
-        
+
         config_dir
     }
 
     fn load_theme(theme_name: &str) -> Result<Theme> {
         let theme_dir = Self::get_config_dir().join("themes");
         let theme_path = theme_dir.join(format!("{}.toml", theme_name));
-        
+
         if theme_path.exists() {
-            let content = std::fs::read_to_string(&theme_path)
-                .context("Failed to read theme file")?;
+            let content =
+                std::fs::read_to_string(&theme_path).context("Failed to read theme file")?;
             toml::from_str(&content).context("Failed to parse theme file")
         } else {
             Ok(Theme::default())
@@ -56,15 +56,14 @@ impl Config {
     fn load_config() -> Result<ConfigFile> {
         let config_dir = Self::get_config_dir();
         let config_path = config_dir.join("config.toml");
-        
+
         if config_path.exists() {
-            let content = std::fs::read_to_string(&config_path)
-                .context("Failed to read config file")?;
+            let content =
+                std::fs::read_to_string(&config_path).context("Failed to read config file")?;
             toml::from_str(&content).context("Failed to parse config file")
         } else {
-            std::fs::create_dir_all(&config_dir)
-                .context("Failed to create config directory")?;
-            
+            std::fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
+
             let default_config = ConfigFile {
                 theme: String::from("catppuccin_mocha"),
                 database: DatabaseConfig {
@@ -74,13 +73,12 @@ impl Config {
                 connections: Vec::new(),
                 keymap: KeyConfig::default(),
             };
-            
+
             let toml_string = toml::to_string_pretty(&default_config)
                 .context("Failed to serialize default config")?;
-            
-            std::fs::write(&config_path, toml_string)
-                .context("Failed to write config file")?;
-            
+
+            std::fs::write(&config_path, toml_string).context("Failed to write config file")?;
+
             Ok(default_config)
         }
     }
@@ -103,13 +101,13 @@ impl Config {
 
         Self {
             theme,
-            theme_name: config_file.theme,  // Store the theme name
+            theme_name: config_file.theme,
             database: config_file.database,
             connections: config_file.connections,
             keymap: config_file.keymap,
         }
     }
-    
+
     // Save connections to config file
     pub fn save_connections(&self, connections: &Vec<ConnectionConfig>) -> Result<()> {
         let config_dir = Self::get_config_dir();
@@ -145,11 +143,10 @@ impl Config {
             keymap: self.keymap.clone(),
         };
 
-        let toml_string = toml::to_string_pretty(&config_file)
-            .context("Failed to serialize config")?;
+        let toml_string =
+            toml::to_string_pretty(&config_file).context("Failed to serialize config")?;
 
-        std::fs::write(&config_path, toml_string)
-            .context("Failed to write config file")?;
+        std::fs::write(&config_path, toml_string).context("Failed to write config file")?;
 
         Ok(())
     }

@@ -6,7 +6,7 @@ pub enum Direction {
     Down,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]  // Remove Default derive
+#[derive(Debug, Clone, Copy, PartialEq, Eq)] // Remove Default derive
 pub enum Pane {
     Connections,
     QueryInput,
@@ -19,4 +19,3 @@ impl Default for Pane {
         Pane::Connections
     }
 }
-

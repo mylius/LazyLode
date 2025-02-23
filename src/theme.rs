@@ -6,18 +6,18 @@ pub struct Theme {
     // Background transparency setting
     #[serde(default)]
     pub transparent_backgrounds: bool,
-    
+
     // Background colors
     pub base: Option<[u8; 3]>,
     pub surface0: Option<[u8; 3]>,
     pub surface1: Option<[u8; 3]>,
     pub surface2: Option<[u8; 3]>,
-    
+
     // Content colors
     pub text: Option<[u8; 3]>,
     pub subtext0: Option<[u8; 3]>,
     pub subtext1: Option<[u8; 3]>,
-    
+
     // Primary colors
     pub blue: Option<[u8; 3]>,
     pub lavender: Option<[u8; 3]>,

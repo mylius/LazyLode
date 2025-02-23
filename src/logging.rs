@@ -1,11 +1,11 @@
 // src/logging.rs
+use anyhow::{Context, Result};
+use chrono::Local;
+use lazy_static::lazy_static;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use anyhow::{Result, Context};
-use chrono::Local;
-use lazy_static::lazy_static;
 
 #[derive(Debug, Clone, Copy)]
 pub enum LogLevel {
@@ -41,7 +41,7 @@ pub fn init_logger() -> Result<()> {
 
     let timestamp = Local::now().format("%Y%m%d_%H%M%S");
     let log_file_path = log_dir.join(format!("lazylode_{}.log", timestamp));
-    
+
     let file = OpenOptions::new()
         .create(true)
         .write(true)
