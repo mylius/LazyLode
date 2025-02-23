@@ -117,18 +117,15 @@ async fn run_app_tick<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
 ) -> io::Result<()> {
-    terminal.draw(|f| ui::render(f, &app))?;
+    terminal.draw(|f| ui::render(f, app))?;
 
     if let Event::Key(key) = event::read()? {
         if KeyCode::Char('q') == key.code && key.modifiers.is_empty() {
             app.quit();
         }
         if app.show_connection_modal {
-            match app.active_block {
-                ActiveBlock::ConnectionModal => {
-                    handle_connection_modal_input(key, app).await?;
-                }
-                _ => {}
+            if let ActiveBlock::ConnectionModal = app.active_block {
+                handle_connection_modal_input(key, app).await?;
             }
         } else {
             match app.active_pane {
@@ -267,7 +264,7 @@ async fn handle_connections_input_normal_mode(
                     Direction::Down => app.move_selection_down(),
                     Direction::Right => {
                         if let Err(e) = app.handle_tree_action(TreeAction::Expand).await {
-                            logging::error(&format!("Error expanding connection: {}", e));
+                            let _ = logging::error(&format!("Error expanding connection: {}", e));
                         }
                     }
                     _ => {}
@@ -281,7 +278,7 @@ async fn handle_connections_input_normal_mode(
             },
             Action::TreeAction(tree_action) => {
                 if let Err(e) = app.handle_tree_action(tree_action).await {
-                    logging::error(&format!("Error in tree action: {}", e));
+                    let _ = logging::error(&format!("Error in tree action: {}", e));
                 }
             }
             Action::Edit => {
@@ -357,11 +354,11 @@ async fn handle_query_input(key: KeyEvent, app: &mut App) -> Result<(), io::Erro
 async fn handle_query_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
     if let Some(action) = app.config.keymap.get_action(key.code, key.modifiers) {
         match action {
-            Action::Navigation(nav_action) => {
-                app.handle_navigation(nav_action);
-            }
             Action::Navigation(NavigationAction::FocusPane(pane)) => {
                 app.active_pane = pane;
+            }
+            Action::Navigation(nav_action) => {
+                app.handle_navigation(nav_action);
             }
             _ => {}
         }
@@ -383,7 +380,7 @@ async fn handle_query_input_insert_mode(key: KeyEvent, app: &mut App) -> Result<
         }
         KeyCode::Enter => {
             if let Err(e) = app.refresh_results().await {
-                logging::error(&format!("Error refreshing results: {}", e));
+                let _ = logging::error(&format!("Error refreshing results: {}", e));
             }
             app.input_mode = InputMode::Normal;
         }
@@ -419,7 +416,7 @@ async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Resul
             }
             KeyCode::Enter => {
                 if let Err(e) = app.confirm_deletions().await {
-                    logging::error(&format!("Error confirming deletions: {}", e));
+                    let _ = logging::error(&format!("Error confirming deletions: {}", e));
                 }
                 app.show_deletion_modal = false;
             }
@@ -443,7 +440,7 @@ async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Resul
             },
             Action::Sort => {
                 if let Err(e) = app.sort_results().await {
-                    logging::error(&format!("Error sorting results: {}", e));
+                    let _ = logging::error(&format!("Error sorting results: {}", e));
                 }
             }
             Action::Delete => {
@@ -459,7 +456,7 @@ async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Resul
                         Err(e) => {
                             // Keep modal open on error so user can see what failed
                             // Status message is already set in confirm_deletions
-                            logging::error(&format!("Error confirming deletions: {}", e));
+                            let _ = logging::error(&format!("Error confirming deletions: {}", e));
                         }
                     }
                 } else if app

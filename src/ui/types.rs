@@ -11,7 +11,6 @@ pub enum Pane {
     Connections,
     QueryInput,
     Results,
-    ConnectionModal,
 }
 
 impl Default for Pane {

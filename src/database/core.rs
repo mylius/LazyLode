@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -47,22 +47,22 @@ pub struct QueryResult {
 pub trait DatabaseConnection: Send + Sync {
     /// Connect to the database
     async fn connect(&mut self) -> Result<()>;
-    
+
     /// Disconnect from the database
     async fn disconnect(&mut self) -> Result<()>;
-    
+
     /// List all available databases
     async fn list_databases(&self) -> Result<Vec<String>>;
-    
+
     /// List all schemas in a database
     async fn list_schemas(&self, database: &str) -> Result<Vec<String>>;
-    
+
     /// List all tables in a schema
     async fn list_tables(&self, schema: &str) -> Result<Vec<String>>;
-    
+
     /// Execute a query with parameters
     async fn execute_query(&self, query: &str) -> Result<QueryResult>;
-    
+
     /// Fetch table data with optional filtering and sorting
     async fn fetch_table_data(
         &self,
@@ -70,7 +70,4 @@ pub trait DatabaseConnection: Send + Sync {
         table: &str,
         params: &QueryParams,
     ) -> Result<QueryResult>;
-
-    /// Clone the connection
-    fn clone_box(&self) -> Box<dyn DatabaseConnection>;
 }

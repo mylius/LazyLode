@@ -30,21 +30,20 @@ impl PostgresConnection {
 
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                logging::error(&format!("Connection error: {}", e));
+                let _ = logging::error(&format!("Connection error: {}", e));
             }
         });
-
         Ok(client)
     }
+}
 
-    fn sanitize_column_name(&self, column: &str) -> String {
-        // Remove any dangerous characters, only allow alphanumeric and underscore
-        let sanitized: String = column
-            .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '_')
-            .collect();
-        format!("\"{}\"", sanitized)
-    }
+fn sanitize_column_name(column: &str) -> String {
+    // Remove any dangerous characters, only allow alphanumeric and underscore
+    let sanitized: String = column
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    format!("\"{}\"", sanitized)
 }
 
 #[async_trait]
@@ -246,8 +245,8 @@ impl DatabaseConnection for PostgresConnection {
         ))?;
 
         // Sanitize schema and table names
-        let schema = self.sanitize_column_name(schema);
-        let table = self.sanitize_column_name(table);
+        let schema = sanitize_column_name(schema);
+        let table = sanitize_column_name(table);
 
         let mut query = format!("SELECT * FROM {}.{}", schema, table);
 
@@ -266,7 +265,7 @@ impl DatabaseConnection for PostgresConnection {
                 for order in orders {
                     let parts: Vec<&str> = order.trim().split_whitespace().collect();
                     if !parts.is_empty() {
-                        let column = self.sanitize_column_name(parts[0]);
+                        let column = sanitize_column_name(parts[0]);
                         let direction = parts
                             .get(1)
                             .map(|d| d.to_uppercase())
@@ -293,9 +292,5 @@ impl DatabaseConnection for PostgresConnection {
 
         logging::debug(&format!("Executing query: {}", query))?;
         self.execute_query(&query).await
-    }
-
-    fn clone_box(&self) -> Box<dyn DatabaseConnection> {
-        Box::new(PostgresConnection::new(self.config.clone()))
     }
 }

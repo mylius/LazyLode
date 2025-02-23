@@ -315,8 +315,4 @@ impl DatabaseConnection for MongoConnection {
             Err(anyhow::anyhow!("Not connected to database"))
         }
     }
-
-    fn clone_box(&self) -> Box<dyn DatabaseConnection> {
-        Box::new(MongoConnection::new(self.config.clone()))
-    }
 }
