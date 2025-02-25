@@ -181,15 +181,21 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
             .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
 
             for (db_idx, database) in connection.databases.iter().enumerate() {
-                let db_expanded = if database.is_expanded { "▼" } else { "▶" }; // Expansion symbol for database
+                let db_expanded = if database.is_expanded { "▼" } else { "▶" };
+
+                let db_style = if app.highlight_selected_item(visible_index) {
+                    Style::default()
+                        .fg(app.config.theme.accent_color())
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(app.config.theme.text_color())
+                };
+
                 tree_items.push(ListItem::new(Line::from(vec![
-                    Span::raw("  "),        // Indentation
-                    Span::raw(db_expanded), // Database expansion symbol
-                    Span::raw(" 🗄 "),       // Database icon
-                    Span::styled(
-                        &database.name,
-                        Style::default().fg(app.config.theme.text_color()),
-                    ), // Database name
+                    Span::raw("  "),
+                    Span::raw(db_expanded),
+                    Span::raw(" 🗄 "),
+                    Span::styled(&database.name, db_style),
                 ])));
                 visible_index += 1; // Increment visible index after database
 
