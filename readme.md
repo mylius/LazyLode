@@ -48,6 +48,13 @@ lazylode
 - Enter: Expand/select item
 - Left/Right: Collapse/expand tree items
 
+### Motion Commands
+
+- y: yank cell
+- yy: yank row
+
+ Numeric modifiers (e.g. `3j` for down 3 rows) are also enabled.
+
 ### Connection Management
 
 - a: Add new connection

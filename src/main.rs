@@ -1,4 +1,5 @@
 mod app;
+mod command;
 mod config;
 mod database;
 mod input;
@@ -423,6 +424,43 @@ async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Resul
             _ => {}
         }
         return Ok(());
+    }
+
+    if key.code == KeyCode::Esc {
+        app.command_buffer.clear();
+        return Ok(());
+    }
+
+    // Handle key input with command buffer
+    match key.code {
+        KeyCode::Char(c) if key.modifiers.is_empty() => {
+            // Add character to command buffer
+            app.command_buffer.push(c);
+
+            // Try to process the command
+            match command::CommandProcessor::process_command(app) {
+                Ok(true) => {
+                    // Command was processed successfully
+                    return Ok(());
+                }
+                Ok(false) => {
+                    // Command not recognized or waiting for more input
+                    // For unrecognized commands that aren't prefixes of valid commands,
+                    // we could clear the buffer here
+                }
+                Err(e) => {
+                    let _ = logging::error(&format!("Error processing command: {}", e));
+                    app.command_buffer.clear();
+                }
+            }
+
+            return Ok(());
+        }
+        _ => {
+            // For non-character keys, we might want to clear the command buffer
+            // or handle special cases (like function keys)
+            app.command_buffer.clear();
+        }
     }
 
     if let Some(action) = app.config.keymap.get_action(key.code, key.modifiers) {

@@ -1,22 +1,17 @@
 //! `app.rs` - Defines the main application logic and data structures.
-
+use crate::command::CommandBuffer;
+use crate::input::{NavigationAction, TreeAction};
 use crate::logging;
-use crate::input::{NavigationAction,TreeAction};
 use crate::ui::types::{Direction, Pane};
+use clipboard::{ClipboardContext, ClipboardProvider};
 
-use std::collections::{HashMap, HashSet};
-use anyhow::Result;
 use crate::config::Config;
 use crate::database::{
-    DatabaseConnection,
-    QueryParams,
-    ConnectionConfig,
-    ConnectionStatus,
-    DatabaseType,
-    ConnectionManager,
-    QueryResult,
+    ConnectionConfig, ConnectionManager, ConnectionStatus, DatabaseConnection, DatabaseType,
+    QueryParams, QueryResult,
 };
-
+use anyhow::Result;
+use std::collections::{HashMap, HashSet};
 
 /// Represents the form data for creating or editing a database connection.
 #[derive(Default, Clone)]
@@ -105,7 +100,6 @@ pub struct QueryForm {
     pub limit: Option<u32>,
 }
 
-
 /// Represents an item in the connection tree.
 #[derive(PartialEq, Debug, Clone, Copy)] // Add PartialEq here
 pub enum TreeItem {
@@ -177,6 +171,8 @@ pub struct App {
     pub show_deletion_modal: bool,
     pub connection_manager: ConnectionManager,
     pub connections: HashMap<String, Box<dyn DatabaseConnection>>,
+    pub command_buffer: CommandBuffer,
+    pub clipboard: String,
 }
 
 impl App {
@@ -189,7 +185,11 @@ impl App {
             show_connection_modal: false,
             saved_connections: config.connections.clone(),
             selected_connection_idx: None,
-            connection_statuses: config.connections.iter().map(|c| (c.name.clone(), ConnectionStatus::NotConnected)).collect(),
+            connection_statuses: config
+                .connections
+                .iter()
+                .map(|c| (c.name.clone(), ConnectionStatus::NotConnected))
+                .collect(),
             connection_form: ConnectionForm::default(),
             input_mode: InputMode::Normal,
             free_query: String::new(),
@@ -205,18 +205,23 @@ impl App {
             selected_result_tab_index: None,
             show_deletion_modal: false,
             connection_manager: ConnectionManager::new(),
+            command_buffer: CommandBuffer::new(),
+            clipboard: String::new(),
         };
 
         app.load_connections();
 
-        app.connection_tree = app.config.connections.iter().map(|conn| {
-            ConnectionTreeItem {
+        app.connection_tree = app
+            .config
+            .connections
+            .iter()
+            .map(|conn| ConnectionTreeItem {
                 connection_config: conn.clone(),
                 status: ConnectionStatus::NotConnected,
                 databases: Vec::new(),
                 is_expanded: false,
-            }
-        }).collect();
+            })
+            .collect();
 
         app
     }
@@ -250,7 +255,9 @@ impl App {
         };
 
         self.saved_connections.push(new_connection.clone());
-        self.config.save_connections(&self.saved_connections).expect("Failed to save connections");
+        self.config
+            .save_connections(&self.saved_connections)
+            .expect("Failed to save connections");
 
         // Add to connection tree
         self.connection_tree.push(ConnectionTreeItem {
@@ -270,13 +277,15 @@ impl App {
             Vec::new()
         });
 
-        self.connection_statuses = self.saved_connections.iter()
+        self.connection_statuses = self
+            .saved_connections
+            .iter()
             .map(|c| (c.name.clone(), ConnectionStatus::NotConnected))
             .collect();
     }
 
     /// Moves the cursor within the results table based on the given direction.
-   pub fn move_cursor_in_results(&mut self, direction: Direction) {
+    pub fn move_cursor_in_results(&mut self, direction: Direction) {
         if let Some(selected_tab_index) = self.selected_result_tab_index {
             if let Some((_, result, _)) = self.result_tabs.get(selected_tab_index) {
                 match direction {
@@ -284,17 +293,17 @@ impl App {
                         if self.cursor_position.0 > 0 {
                             self.cursor_position.0 -= 1;
                         }
-                    },
+                    }
                     Direction::Right => {
                         if self.cursor_position.0 < result.columns.len().saturating_sub(1) {
                             self.cursor_position.0 += 1;
                         }
-                    },
+                    }
                     Direction::Up => {
                         if self.cursor_position.1 > 0 {
                             self.cursor_position.1 -= 1;
                         }
-                    },
+                    }
                     Direction::Down => {
                         if self.cursor_position.1 < result.rows.len().saturating_sub(1) {
                             self.cursor_position.1 += 1;
@@ -328,34 +337,34 @@ impl App {
                                 self.cursor_position.0 = 0; // WHERE clause
                                 let len = self.get_current_field_length();
                                 self.cursor_position.1 = self.cursor_position.1.min(len);
-                            },
+                            }
                             Direction::Down => {
                                 self.cursor_position.0 = 1; // ORDER BY clause
                                 let len = self.get_current_field_length();
                                 self.cursor_position.1 = self.cursor_position.1.min(len);
-                            },
+                            }
                             Direction::Left => {
                                 if self.cursor_position.1 > 0 {
                                     self.cursor_position.1 -= 1;
                                 }
-                            },
+                            }
                             Direction::Right => {
                                 let max_pos = self.get_current_field_length();
                                 if self.cursor_position.1 < max_pos {
                                     self.cursor_position.1 += 1;
                                 }
-                            },
+                            }
                         }
-                    },
+                    }
                     _ => {} // Handle other panes as before
                 }
-            },
-            NavigationAction::NextTab =>  self.select_next_tab(),
+            }
+            NavigationAction::NextTab => self.select_next_tab(),
             NavigationAction::PreviousTab => self.select_previous_tab(),
             _ => {} // Handle other actions as before
         }
+        self.command_buffer.clear();
     }
-
 
     /// Handles tree-related actions such as expand and collapse.
     pub async fn handle_tree_action(&mut self, action: TreeAction) -> Result<()> {
@@ -363,35 +372,43 @@ impl App {
             if let Some(idx) = self.selected_connection_idx {
                 match action {
                     TreeAction::Expand => {
-                        logging::debug(&format!("Expanding connection at visual index {}", idx)).unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+                        logging::debug(&format!("Expanding connection at visual index {}", idx))
+                            .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
                         self.toggle_tree_item(idx).await?;
-                    },
+                    }
                     TreeAction::Collapse => {
                         // Just collapse without making any async calls
                         if let Some(tree_item) = self.get_tree_item_at_visual_index(idx) {
                             match tree_item {
                                 TreeItem::Connection(conn_idx) => {
-                                    if let Some(connection) = self.connection_tree.get_mut(conn_idx) {
+                                    if let Some(connection) = self.connection_tree.get_mut(conn_idx)
+                                    {
                                         connection.is_expanded = false;
                                     }
-                                },
+                                }
                                 TreeItem::Database(conn_idx, db_idx) => {
-                                    if let Some(connection) = self.connection_tree.get_mut(conn_idx) {
-                                        if let Some(database) = connection.databases.get_mut(db_idx) {
+                                    if let Some(connection) = self.connection_tree.get_mut(conn_idx)
+                                    {
+                                        if let Some(database) = connection.databases.get_mut(db_idx)
+                                        {
                                             database.is_expanded = false;
                                         }
                                     }
-                                },
+                                }
                                 TreeItem::Schema(conn_idx, db_idx, schema_idx) => {
-                                    if let Some(connection) = self.connection_tree.get_mut(conn_idx) {
-                                        if let Some(database) = connection.databases.get_mut(db_idx) {
-                                            if let Some(schema) = database.schemas.get_mut(schema_idx) {
+                                    if let Some(connection) = self.connection_tree.get_mut(conn_idx)
+                                    {
+                                        if let Some(database) = connection.databases.get_mut(db_idx)
+                                        {
+                                            if let Some(schema) =
+                                                database.schemas.get_mut(schema_idx)
+                                            {
                                                 schema.is_expanded = false;
                                             }
                                         }
                                     }
-                                },
-                                TreeItem::Table(_, _, _, _) => {}, // Tables don't expand/collapse
+                                }
+                                TreeItem::Table(_, _, _, _) => {} // Tables don't expand/collapse
                             }
                         }
                     }
@@ -401,87 +418,108 @@ impl App {
         Ok(())
     }
 
-
     /// Expands a connection in the tree to show databases.
     pub async fn expand_connection(&mut self, index: usize) -> Result<()> {
-    logging::debug(&format!("Attempting to expand connection at index {}", index))?;
+        logging::debug(&format!(
+            "Attempting to expand connection at index {}",
+            index
+        ))?;
 
-    if let Some(connection) = self.connection_tree.get_mut(index) {
-        if !connection.is_expanded {
-            connection.status = ConnectionStatus::Connecting;
-            logging::info(&format!("Connecting to database: {}", connection.connection_config.name))?;
+        if let Some(connection) = self.connection_tree.get_mut(index) {
+            if !connection.is_expanded {
+                connection.status = ConnectionStatus::Connecting;
+                logging::info(&format!(
+                    "Connecting to database: {}",
+                    connection.connection_config.name
+                ))?;
 
-            // Try to connect
-            match self.connection_manager.connect(connection.connection_config.clone()).await {
-                Ok(_) => {
-                    if let Some(db_conn) = self.connection_manager.get_connection(&connection.connection_config.name) {
-                        match db_conn.list_databases().await {
-                            Ok(databases) => {
-                                logging::debug(&format!("Found {} databases", databases.len()))?;
+                // Try to connect
+                match self
+                    .connection_manager
+                    .connect(connection.connection_config.clone())
+                    .await
+                {
+                    Ok(_) => {
+                        if let Some(db_conn) = self
+                            .connection_manager
+                            .get_connection(&connection.connection_config.name)
+                        {
+                            match db_conn.list_databases().await {
+                                Ok(databases) => {
+                                    logging::debug(&format!(
+                                        "Found {} databases",
+                                        databases.len()
+                                    ))?;
 
-                                connection.databases = databases.into_iter()
-                                    .map(|db_name| DatabaseTreeItem {
-                                        name: db_name,
-                                        schemas: Vec::new(),
-                                        is_expanded: false,
-                                    })
-                                    .collect();
+                                    connection.databases = databases
+                                        .into_iter()
+                                        .map(|db_name| DatabaseTreeItem {
+                                            name: db_name,
+                                            schemas: Vec::new(),
+                                            is_expanded: false,
+                                        })
+                                        .collect();
 
-                                connection.status = ConnectionStatus::Connected;
-                                connection.is_expanded = true;
+                                    connection.status = ConnectionStatus::Connected;
+                                    connection.is_expanded = true;
 
-                                logging::info(&format!(
-                                    "Successfully expanded connection {}", 
-                                    connection.connection_config.name
-                                ))?;
+                                    logging::info(&format!(
+                                        "Successfully expanded connection {}",
+                                        connection.connection_config.name
+                                    ))?;
+                                }
+                                Err(e) => {
+                                    connection.status = ConnectionStatus::Failed;
+                                    let error_msg = format!("Failed to list databases: {}", e);
+                                    logging::error(&error_msg)?;
+                                    return Err(anyhow::anyhow!(error_msg));
+                                }
                             }
-                            Err(e) => {
-                                connection.status = ConnectionStatus::Failed;
-                                let error_msg = format!("Failed to list databases: {}", e);
-                                logging::error(&error_msg)?;
-                                return Err(anyhow::anyhow!(error_msg));
-                            }
+                        } else {
+                            connection.status = ConnectionStatus::Failed;
+                            let error_msg =
+                                "Connection not found after successful connection".to_string();
+                            logging::error(&error_msg)?;
+                            return Err(anyhow::anyhow!(error_msg));
                         }
-                    } else {
+                    }
+                    Err(e) => {
                         connection.status = ConnectionStatus::Failed;
-                        let error_msg = "Connection not found after successful connection".to_string();
+                        let error_msg = format!("Failed to connect: {}", e);
                         logging::error(&error_msg)?;
                         return Err(anyhow::anyhow!(error_msg));
                     }
                 }
-                Err(e) => {
-                    connection.status = ConnectionStatus::Failed;
-                    let error_msg = format!("Failed to connect: {}", e);
-                    logging::error(&error_msg)?;
-                    return Err(anyhow::anyhow!(error_msg));
-                }
+            } else {
+                // If already expanded, just collapse
+                connection.is_expanded = false;
+                logging::debug(&format!(
+                    "Collapsed connection {}",
+                    connection.connection_config.name
+                ))?;
             }
         } else {
-            // If already expanded, just collapse
-            connection.is_expanded = false;
-            logging::debug(&format!(
-                "Collapsed connection {}", 
-                connection.connection_config.name
-            ))?;
+            let error_msg = format!("Connection at index {} not found", index);
+            logging::error(&error_msg)?;
+            return Err(anyhow::anyhow!(error_msg));
         }
-    } else {
-        let error_msg = format!("Connection at index {} not found", index);
-        logging::error(&error_msg)?;
-        return Err(anyhow::anyhow!(error_msg));
-    }
 
-    Ok(())
-}
+        Ok(())
+    }
 
     /// Expands a database in the tree to show schemas.
     pub async fn expand_database(&mut self, conn_idx: usize, db_idx: usize) -> Result<()> {
         if let Some(connection) = self.connection_tree.get_mut(conn_idx) {
             if let Some(database) = connection.databases.get_mut(db_idx) {
                 if !database.is_expanded {
-                    if let Some(db_conn) = self.connection_manager.get_connection(&connection.connection_config.name) {
+                    if let Some(db_conn) = self
+                        .connection_manager
+                        .get_connection(&connection.connection_config.name)
+                    {
                         match db_conn.list_schemas(&database.name).await {
                             Ok(schemas) => {
-                                database.schemas = schemas.into_iter()
+                                database.schemas = schemas
+                                    .into_iter()
                                     .map(|schema_name| SchemaTreeItem {
                                         name: schema_name,
                                         tables: Vec::new(),
@@ -505,21 +543,38 @@ impl App {
     }
 
     /// Expands a schema in the tree to show tables.
-    pub async fn expand_schema(&mut self, conn_idx: usize, db_idx: usize, schema_idx: usize) -> Result<()> {
-        logging::debug(&format!("Attempting to expand schema at connection {}, database {}, schema {}",
-            conn_idx, db_idx, schema_idx))?;
+    pub async fn expand_schema(
+        &mut self,
+        conn_idx: usize,
+        db_idx: usize,
+        schema_idx: usize,
+    ) -> Result<()> {
+        logging::debug(&format!(
+            "Attempting to expand schema at connection {}, database {}, schema {}",
+            conn_idx, db_idx, schema_idx
+        ))?;
 
         if let Some(connection) = self.connection_tree.get_mut(conn_idx) {
             if let Some(database) = connection.databases.get_mut(db_idx) {
                 if let Some(schema) = database.schemas.get_mut(schema_idx) {
                     if !schema.is_expanded {
-                        if let Some(db_connection) = self.connection_manager.get_connection(&connection.connection_config.name) {
+                        if let Some(db_connection) = self
+                            .connection_manager
+                            .get_connection(&connection.connection_config.name)
+                        {
                             match db_connection.list_tables(&schema.name).await {
                                 Ok(tables) => {
-                                    logging::debug(&format!("Found {} tables in schema {}", tables.len(), schema.name))?;
+                                    logging::debug(&format!(
+                                        "Found {} tables in schema {}",
+                                        tables.len(),
+                                        schema.name
+                                    ))?;
                                     schema.tables = tables;
                                     schema.is_expanded = true;
-                                    logging::info(&format!("Successfully expanded schema {}", schema.name))?;
+                                    logging::info(&format!(
+                                        "Successfully expanded schema {}",
+                                        schema.name
+                                    ))?;
                                 }
                                 Err(e) => {
                                     logging::error(&format!("Failed to list tables: {}", e))?;
@@ -528,7 +583,10 @@ impl App {
                             }
                         } else {
                             let err = anyhow::anyhow!("Connection not found in connection manager");
-                            logging::error(&format!("Connection {} not found in connection manager", connection.connection_config.name))?;
+                            logging::error(&format!(
+                                "Connection {} not found in connection manager",
+                                connection.connection_config.name
+                            ))?;
                             return Err(err);
                         }
                     } else {
@@ -556,7 +614,9 @@ impl App {
             };
 
             self.saved_connections[index] = updated_connection.clone();
-            self.config.save_connections(&self.saved_connections).expect("Failed to save connections");
+            self.config
+                .save_connections(&self.saved_connections)
+                .expect("Failed to save connections");
 
             // Update the connection tree
             if let Some(tree_item) = self.connection_tree.get_mut(index) {
@@ -571,7 +631,9 @@ impl App {
         if let Some(index) = self.selected_connection_idx {
             // Remove the connection from saved_connections
             self.saved_connections.remove(index);
-            self.config.save_connections(&self.saved_connections).expect("Failed to save connections");
+            self.config
+                .save_connections(&self.saved_connections)
+                .expect("Failed to save connections");
 
             // Remove from connection tree
             self.connection_tree.remove(index);
@@ -580,12 +642,11 @@ impl App {
             if self.connection_tree.is_empty() {
                 self.selected_connection_idx = None; // No connections left
             } else if index >= self.connection_tree.len() {
-                self.selected_connection_idx = Some(self.connection_tree.len() - 1); // Select the last connection
+                self.selected_connection_idx = Some(self.connection_tree.len() - 1);
+                // Select the last connection
             }
         }
     }
-
-
 
     /// Calculates the total number of visible items in the connection tree.
     pub fn get_total_visible_items(&self) -> usize {
@@ -636,7 +697,9 @@ impl App {
                             if schema.is_expanded {
                                 for (table_idx, _) in schema.tables.iter().enumerate() {
                                     if current_visual_index == visual_index {
-                                        return Some(TreeItem::Table(conn_idx, db_idx, schema_idx, table_idx));
+                                        return Some(TreeItem::Table(
+                                            conn_idx, db_idx, schema_idx, table_idx,
+                                        ));
                                     }
                                     current_visual_index += 1;
                                 }
@@ -675,7 +738,9 @@ impl App {
 
                             if schema.is_expanded {
                                 for (table_idx, _) in schema.tables.iter().enumerate() {
-                                    if *tree_item == TreeItem::Table(conn_idx, db_idx, schema_idx, table_idx) {
+                                    if *tree_item
+                                        == TreeItem::Table(conn_idx, db_idx, schema_idx, table_idx)
+                                    {
                                         return Some(current_visual_index);
                                     }
                                     current_visual_index += 1;
@@ -703,7 +768,6 @@ impl App {
             .map(|(_, _, state)| state)
     }
 
-
     /// Insert character at cursor position in current query field
     pub fn insert_char(&mut self, c: char) {
         // Get cursor positions before mutable borrow
@@ -715,12 +779,12 @@ impl App {
                 0 => {
                     state.where_clause.insert(cursor_pos, c);
                     self.cursor_position.1 += 1;
-                },
+                }
                 1 => {
                     state.order_by_clause.insert(cursor_pos, c);
                     self.cursor_position.1 += 1;
-                },
-                _ => {},
+                }
+                _ => {}
             }
         }
     }
@@ -737,12 +801,12 @@ impl App {
                     0 => {
                         state.where_clause.remove(cursor_pos - 1);
                         self.cursor_position.1 -= 1;
-                    },
+                    }
                     1 => {
                         state.order_by_clause.remove(cursor_pos - 1);
                         self.cursor_position.1 -= 1;
-                    },
-                    _ => {},
+                    }
+                    _ => {}
                 }
             }
         }
@@ -750,9 +814,11 @@ impl App {
 
     pub async fn sort_results(&mut self) -> Result<()> {
         // Get current result and state
-        let (current_result, query_state) = match self.selected_result_tab_index
+        let (current_result, query_state) = match self
+            .selected_result_tab_index
             .and_then(|idx| self.result_tabs.get_mut(idx))
-            .map(|(_, result, state)| (result, state)) {
+            .map(|(_, result, state)| (result, state))
+        {
             Some((result, state)) if !result.columns.is_empty() => (result, state),
             _ => return Ok(()),
         };
@@ -760,7 +826,7 @@ impl App {
         // Use cursor position to determine which column to sort
         let col_idx = self.cursor_position.0;
         let current_col = current_result.columns.get(col_idx).cloned();
-        
+
         if let Some(current_col) = current_col {
             // Update sort state
             if query_state.sort_column.as_ref() != Some(&current_col) {
@@ -779,11 +845,11 @@ impl App {
                     }
                 }
             }
-            
+
             // Refresh the results with new sort
             self.refresh_results().await?;
         }
-        
+
         Ok(())
     }
 
@@ -791,7 +857,8 @@ impl App {
     pub async fn refresh_results(&mut self) -> Result<()> {
         if let Some((name, schema, table)) = &self.last_table_info {
             if let Some(connection) = self.connection_manager.get_connection(name) {
-                let query_state = self.current_query_state()
+                let query_state = self
+                    .current_query_state()
                     .ok_or_else(|| anyhow::anyhow!("No active query state"))?;
 
                 let params = QueryParams {
@@ -813,75 +880,104 @@ impl App {
         Ok(())
     }
 
-   /// Toggles (expand/collapse) a tree item based on its visual index.
-   pub async fn toggle_tree_item(&mut self, visual_index: usize) -> Result<()> {
-    if let Some(tree_item) = self.get_tree_item_at_visual_index(visual_index) {
-        logging::debug(&format!("Toggling tree item at visual index {}", visual_index)).unwrap_or_else(|e| eprintln!("Logging error: {}", e));
-        match tree_item {
-            TreeItem::Connection(conn_idx) => {
-                self.expand_connection(conn_idx).await?;
-            }
-            TreeItem::Database(conn_idx, db_idx) => {
-                self.expand_database(conn_idx, db_idx).await?;
-            }
-            TreeItem::Schema(conn_idx, db_idx, schema_idx) => {
-                self.expand_schema(conn_idx, db_idx, schema_idx).await?;
-            }
-            TreeItem::Table(conn_idx, db_idx, schema_idx, table_idx) => {
-                if let Some(connection) = self.connection_tree.get(conn_idx) {
-                    if let Some(database) = connection.databases.get(db_idx) {
-                        if let Some(schema) = database.schemas.get(schema_idx) {
-                            if let Some(table) = schema.tables.get(table_idx) {
-                                if let Some(db_connection) = self.connection_manager.get_connection(&connection.connection_config.name) {
-                                    let params = QueryParams {
-                                        where_clause: None,
-                                        order_by: None,
-                                        limit: Some(50), // Default page size
-                                        offset: None,
-                                    };
-                                    logging::debug(&format!("Fetching table data for schema {}, table {}", schema.name, table)).unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+    /// Toggles (expand/collapse) a tree item based on its visual index.
+    pub async fn toggle_tree_item(&mut self, visual_index: usize) -> Result<()> {
+        if let Some(tree_item) = self.get_tree_item_at_visual_index(visual_index) {
+            logging::debug(&format!(
+                "Toggling tree item at visual index {}",
+                visual_index
+            ))
+            .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+            match tree_item {
+                TreeItem::Connection(conn_idx) => {
+                    self.expand_connection(conn_idx).await?;
+                }
+                TreeItem::Database(conn_idx, db_idx) => {
+                    self.expand_database(conn_idx, db_idx).await?;
+                }
+                TreeItem::Schema(conn_idx, db_idx, schema_idx) => {
+                    self.expand_schema(conn_idx, db_idx, schema_idx).await?;
+                }
+                TreeItem::Table(conn_idx, db_idx, schema_idx, table_idx) => {
+                    if let Some(connection) = self.connection_tree.get(conn_idx) {
+                        if let Some(database) = connection.databases.get(db_idx) {
+                            if let Some(schema) = database.schemas.get(schema_idx) {
+                                if let Some(table) = schema.tables.get(table_idx) {
+                                    if let Some(db_connection) = self
+                                        .connection_manager
+                                        .get_connection(&connection.connection_config.name)
+                                    {
+                                        let params = QueryParams {
+                                            where_clause: None,
+                                            order_by: None,
+                                            limit: Some(50), // Default page size
+                                            offset: None,
+                                        };
+                                        logging::debug(&format!(
+                                            "Fetching table data for schema {}, table {}",
+                                            schema.name, table
+                                        ))
+                                        .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
 
-                                    match db_connection.fetch_table_data(&schema.name, table, &params).await {
-                                        Ok(result) => {
-                                            let tab_name = format!("{}.{}", schema.name, table);
-                                            let tab_index = self.result_tabs.iter().position(|(name, _, _)| name == &tab_name);
-                                            
-                                            // Initialize new query state
-                                            let query_state = QueryState {
-                                                page_size: 50, // Default page size
-                                                current_page: 1,
-                                                total_pages: None,
-                                                total_records: None,
-                                                sort_column: None,
-                                                sort_order: None,
-                                                rows_marked_for_deletion: HashSet::new(),
-                                                where_clause: String::new(),
-                                                order_by_clause: String::new(),
-                                            };
+                                        match db_connection
+                                            .fetch_table_data(&schema.name, table, &params)
+                                            .await
+                                        {
+                                            Ok(result) => {
+                                                let tab_name = format!("{}.{}", schema.name, table);
+                                                let tab_index = self
+                                                    .result_tabs
+                                                    .iter()
+                                                    .position(|(name, _, _)| name == &tab_name);
 
-                                            if let Some(index) = tab_index {
-                                                self.selected_result_tab_index = Some(index);
-                                                // Update the result but preserve existing query state
-                                                let existing_state = self.result_tabs[index].2.clone();
-                                                self.result_tabs[index] = (tab_name, result, existing_state);
-                                            } else {
-                                                // Create new tab with new query state
-                                                self.result_tabs.push((tab_name, result, query_state));
-                                                self.selected_result_tab_index = Some(self.result_tabs.len() - 1);
+                                                // Initialize new query state
+                                                let query_state = QueryState {
+                                                    page_size: 50, // Default page size
+                                                    current_page: 1,
+                                                    total_pages: None,
+                                                    total_records: None,
+                                                    sort_column: None,
+                                                    sort_order: None,
+                                                    rows_marked_for_deletion: HashSet::new(),
+                                                    where_clause: String::new(),
+                                                    order_by_clause: String::new(),
+                                                };
+
+                                                if let Some(index) = tab_index {
+                                                    self.selected_result_tab_index = Some(index);
+                                                    // Update the result but preserve existing query state
+                                                    let existing_state =
+                                                        self.result_tabs[index].2.clone();
+                                                    self.result_tabs[index] =
+                                                        (tab_name, result, existing_state);
+                                                } else {
+                                                    // Create new tab with new query state
+                                                    self.result_tabs.push((
+                                                        tab_name,
+                                                        result,
+                                                        query_state,
+                                                    ));
+                                                    self.selected_result_tab_index =
+                                                        Some(self.result_tabs.len() - 1);
+                                                }
+
+                                                self.last_table_info = Some((
+                                                    connection.connection_config.name.clone(),
+                                                    schema.name.clone(),
+                                                    table.clone(),
+                                                ));
+
+                                                logging::info(&format!(
+                                                    "Successfully fetched data from table {}",
+                                                    table
+                                                ))?;
                                             }
-
-                                            self.last_table_info = Some((
-                                                connection.connection_config.name.clone(),
-                                                schema.name.clone(),
-                                                table.clone(),
-                                            ));
-
-                                            logging::info(&format!("Successfully fetched data from table {}", table))?;
-                                        }
-                                        Err(e) => {
-                                            let error_msg = format!("Failed to fetch table data: {}", e);
-                                            logging::error(&error_msg)?;
-                                            return Err(anyhow::anyhow!(error_msg));
+                                            Err(e) => {
+                                                let error_msg =
+                                                    format!("Failed to fetch table data: {}", e);
+                                                logging::error(&error_msg)?;
+                                                return Err(anyhow::anyhow!(error_msg));
+                                            }
                                         }
                                     }
                                 }
@@ -891,10 +987,9 @@ impl App {
                 }
             }
         }
-    }
 
-    Ok(())
-}
+        Ok(())
+    }
 
     /// Moves the selection up in the connections tree.
     pub fn move_selection_up(&mut self) {
@@ -916,7 +1011,11 @@ impl App {
         let total_items = self.get_total_visible_items();
 
         if let Some(current_idx) = self.selected_connection_idx {
-            logging::debug(&format!("move_selection_down: current_idx = {}", current_idx)).unwrap(); // ADD THIS LINE
+            logging::debug(&format!(
+                "move_selection_down: current_idx = {}",
+                current_idx
+            ))
+            .unwrap(); // ADD THIS LINE
             if current_idx + 1 < total_items {
                 self.selected_connection_idx = Some(current_idx + 1);
             }
@@ -924,7 +1023,82 @@ impl App {
             // If nothing is selected, select the first item
             self.selected_connection_idx = Some(0);
         }
-        logging::debug(&format!("move_selection_down: selected_connection_idx = {:?}", self.selected_connection_idx)).unwrap();
+        logging::debug(&format!(
+            "move_selection_down: selected_connection_idx = {:?}",
+            self.selected_connection_idx
+        ))
+        .unwrap();
+    }
+
+    pub fn copy_cell(&mut self) -> anyhow::Result<()> {
+        if let Some(selected_tab_index) = self.selected_result_tab_index {
+            if let Some((_, result, _)) = self.result_tabs.get(selected_tab_index) {
+                if let Some(row) = result.rows.get(self.cursor_position.1) {
+                    if let Some(cell) = row.get(self.cursor_position.0) {
+                        // Store in internal clipboard
+                        self.clipboard = cell.clone();
+
+                        // Also copy to system clipboard
+                        let mut ctx: ClipboardContext = match ClipboardProvider::new() {
+                            Ok(ctx) => ctx,
+                            Err(e) => {
+                                let error_msg = format!("Failed to access clipboard: {}", e);
+                                logging::error(&error_msg)?;
+                                self.status_message = Some(error_msg);
+                                return Ok(());
+                            }
+                        };
+
+                        if let Err(e) = ctx.set_contents(cell.clone()) {
+                            let error_msg = format!("Failed to copy to clipboard: {}", e);
+                            logging::error(&error_msg)?;
+                            self.status_message = Some(error_msg);
+                            return Ok(());
+                        }
+
+                        self.status_message = Some("Cell copied to clipboard".to_string());
+                        logging::info(&format!("Copied cell content to clipboard: {}", cell))?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn copy_row(&mut self) -> anyhow::Result<()> {
+        if let Some(selected_tab_index) = self.selected_result_tab_index {
+            if let Some((_, result, _)) = self.result_tabs.get(selected_tab_index) {
+                if let Some(row) = result.rows.get(self.cursor_position.1) {
+                    // Join row cells with tabs for easy pasting into spreadsheets
+                    let row_content = row.join("\t");
+
+                    // Store in internal clipboard
+                    self.clipboard = row_content.clone();
+
+                    // Also copy to system clipboard
+                    let mut ctx: ClipboardContext = match ClipboardProvider::new() {
+                        Ok(ctx) => ctx,
+                        Err(e) => {
+                            let error_msg = format!("Failed to access clipboard: {}", e);
+                            logging::error(&error_msg)?;
+                            self.status_message = Some(error_msg);
+                            return Ok(());
+                        }
+                    };
+
+                    if let Err(e) = ctx.set_contents(row_content.clone()) {
+                        let error_msg = format!("Failed to copy to clipboard: {}", e);
+                        logging::error(&error_msg)?;
+                        self.status_message = Some(error_msg);
+                        return Ok(());
+                    }
+
+                    self.status_message = Some("Row copied to clipboard".to_string());
+                    logging::info(&format!("Copied row to clipboard: {} cells", row.len()))?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Selects the next result tab.
@@ -944,18 +1118,22 @@ impl App {
             return;
         }
         self.selected_result_tab_index = Some(match self.selected_result_tab_index {
-            Some(idx) => if idx > 0 { idx - 1 } else { self.result_tabs.len() - 1 }, // Wrap around
+            Some(idx) => {
+                if idx > 0 {
+                    idx - 1
+                } else {
+                    self.result_tabs.len() - 1
+                }
+            } // Wrap around
             None => 0, // Select first tab if none selected
         });
     }
-
 
     /// Checks if a given visual index is the currently selected item in the connections tree.
     pub fn highlight_selected_item(&self, visual_index: usize) -> bool {
         self.selected_connection_idx == Some(visual_index)
     }
 
-  
     /// Move to the next page of results
     pub async fn next_page(&mut self) -> Result<()> {
         if let Some(state) = self.current_query_state_mut() {
@@ -1016,7 +1194,7 @@ impl App {
         Ok(())
     }
 
-pub fn toggle_row_deletion_mark(&mut self) {
+    pub fn toggle_row_deletion_mark(&mut self) {
         if let Some(result_tab_index) = self.selected_result_tab_index {
             if let Some((_, _, state)) = self.result_tabs.get_mut(result_tab_index) {
                 let row_index = self.cursor_position.1;
@@ -1032,7 +1210,9 @@ pub fn toggle_row_deletion_mark(&mut self) {
     pub fn get_deletion_preview(&self) -> Option<Vec<Vec<String>>> {
         self.selected_result_tab_index.and_then(|idx| {
             self.result_tabs.get(idx).map(|(_, result, state)| {
-                state.rows_marked_for_deletion.iter()
+                state
+                    .rows_marked_for_deletion
+                    .iter()
                     .filter_map(|&row_idx| result.rows.get(row_idx))
                     .cloned()
                     .collect()
@@ -1044,11 +1224,14 @@ pub fn toggle_row_deletion_mark(&mut self) {
         // First gather all the data we need
         let delete_info = {
             if let Some((conn_name, schema, table)) = &self.last_table_info {
-                if let Some((_, result, state)) = self.selected_result_tab_index
-                    .and_then(|idx| self.result_tabs.get(idx)) 
+                if let Some((_, result, state)) = self
+                    .selected_result_tab_index
+                    .and_then(|idx| self.result_tabs.get(idx))
                 {
                     let pk_column = &result.columns[0];
-                    let pk_values: Vec<String> = state.rows_marked_for_deletion.iter()
+                    let pk_values: Vec<String> = state
+                        .rows_marked_for_deletion
+                        .iter()
                         .filter_map(|&row_idx| result.rows.get(row_idx))
                         .filter_map(|row| row.first())
                         .cloned()
@@ -1060,7 +1243,7 @@ pub fn toggle_row_deletion_mark(&mut self) {
                         schema.clone(),
                         table.clone(),
                         pk_column.clone(),
-                        pk_values
+                        pk_values,
                     ))
                 } else {
                     None
@@ -1085,20 +1268,27 @@ pub fn toggle_row_deletion_mark(&mut self) {
                     match db_connection.execute_query(&query).await {
                         Ok(_) => {
                             // Clear deletion marks
-                            if let Some((_, _, state)) = self.selected_result_tab_index
-                                .and_then(|idx| self.result_tabs.get_mut(idx)) 
+                            if let Some((_, _, state)) = self
+                                .selected_result_tab_index
+                                .and_then(|idx| self.result_tabs.get_mut(idx))
                             {
                                 state.rows_marked_for_deletion.clear();
                             }
-                            
+
                             // Refresh results
                             self.refresh_results().await?;
-                            
-                            self.status_message = Some(format!("Successfully deleted {} rows", pk_values.len()));
-                            logging::info(&format!("Successfully deleted {} rows from {}.{}", pk_values.len(), schema, table))?;
-                            
+
+                            self.status_message =
+                                Some(format!("Successfully deleted {} rows", pk_values.len()));
+                            logging::info(&format!(
+                                "Successfully deleted {} rows from {}.{}",
+                                pk_values.len(),
+                                schema,
+                                table
+                            ))?;
+
                             Ok(())
-                        },
+                        }
                         Err(e) => {
                             let error_msg = format!("Failed to delete rows: {}", e);
                             self.status_message = Some(error_msg.clone());
@@ -1120,12 +1310,11 @@ pub fn toggle_row_deletion_mark(&mut self) {
     }
 
     pub fn clear_deletion_marks(&mut self) {
-        if let Some((_, _, state)) = self.selected_result_tab_index
-            .and_then(|idx| self.result_tabs.get_mut(idx)) 
+        if let Some((_, _, state)) = self
+            .selected_result_tab_index
+            .and_then(|idx| self.result_tabs.get_mut(idx))
         {
             state.rows_marked_for_deletion.clear();
         }
     }
-
-
 }

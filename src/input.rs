@@ -50,6 +50,8 @@ pub enum Action {
     Delete,
     Confirm,
     Cancel,
+    CopyCell,
+    CopyRow,
 }
 
 /// Defines the key configuration for different actions.
@@ -83,6 +85,8 @@ pub struct KeyConfig {
     pub edit_key: char,   // Default: 'e'
     pub delete_key: char, // Default: 'd'
 
+    pub copy_key: char, // Default: 'y'
+
     /// Modifier key to use for pane switching (Ctrl, Alt, Shift).
     pub pane_modifier: PaneModifier,
 }
@@ -115,6 +119,8 @@ impl Default for KeyConfig {
             // Edit and delete keys
             edit_key: 'e',
             delete_key: 'd',
+
+            copy_key: 'y',
 
             pane_modifier: PaneModifier::Shift,
         }
@@ -164,6 +170,7 @@ impl KeyConfig {
                         }
                         c if c == self.edit_key => Some(Action::Edit),
                         c if c == self.delete_key => Some(Action::Delete),
+                        c if c == self.copy_key => Some(Action::CopyCell),
                         c if c == self.left_key => Some(Action::Navigation(
                             NavigationAction::Direction(Direction::Left),
                         )),
