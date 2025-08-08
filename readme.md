@@ -81,6 +81,18 @@ lazylode
 - n: Next page
 - p: Previous page
 
+### Foreign Key Jump
+
+- Follow foreign key from the current cell to the referenced row/table using your pane modifier + follow key.
+- Default: Shift + l (configurable).
+- You can change the follow key in `~/.config/lazylode/config.toml`:
+  ```toml
+  [keymap]
+  # Used together with pane_modifier (Shift/Ctrl/Alt)
+  follow_fk_key = "l" # example: Shift+l will follow FK
+  pane_modifier = "Shift"
+  ```
+
 ## Logs
 
 Log files are stored in `~/.config/lazylode/logs/` with timestamp-based naming.

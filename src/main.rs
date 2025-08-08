@@ -502,6 +502,11 @@ async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Resul
                     app.handle_navigation(nav_action);
                 }
             },
+            Action::FollowForeignKey => {
+                if let Err(e) = app.follow_foreign_key().await {
+                    let _ = logging::error(&format!("Error following foreign key: {}", e));
+                }
+            }
             Action::FirstPage => {
                 if let Err(e) = app.first_page().await {
                     let _ = logging::error(&format!("Error going to first page: {}", e));
@@ -763,27 +768,50 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
             }
         }
         MouseEventKind::ScrollUp => {
-            // Prefer scrolling where the mouse is
-            if y >= conn_list_inner.y && y < conn_list_inner.y + conn_list_inner.height {
-                app.active_pane = Pane::Connections;
-                app.move_selection_up();
-                return Ok(());
+            match app.active_pane {
+                Pane::Results => {
+                    app.move_cursor_in_results(crate::ui::types::Direction::Up);
+                    return Ok(());
+                }
+                Pane::Connections => {
+                    app.move_selection_up();
+                    return Ok(());
+                }
+                _ => {}
             }
+            // Fallback to hover-based behavior
             if y >= results_inner.y && y < results_inner.y + results_inner.height {
                 app.active_pane = Pane::Results;
                 app.move_cursor_in_results(crate::ui::types::Direction::Up);
                 return Ok(());
             }
-        }
-        MouseEventKind::ScrollDown => {
             if y >= conn_list_inner.y && y < conn_list_inner.y + conn_list_inner.height {
                 app.active_pane = Pane::Connections;
-                app.move_selection_down();
+                app.move_selection_up();
                 return Ok(());
             }
+        }
+        MouseEventKind::ScrollDown => {
+            match app.active_pane {
+                Pane::Results => {
+                    app.move_cursor_in_results(crate::ui::types::Direction::Down);
+                    return Ok(());
+                }
+                Pane::Connections => {
+                    app.move_selection_down();
+                    return Ok(());
+                }
+                _ => {}
+            }
+            // Fallback to hover-based behavior
             if y >= results_inner.y && y < results_inner.y + results_inner.height {
                 app.active_pane = Pane::Results;
                 app.move_cursor_in_results(crate::ui::types::Direction::Down);
+                return Ok(());
+            }
+            if y >= conn_list_inner.y && y < conn_list_inner.y + conn_list_inner.height {
+                app.active_pane = Pane::Connections;
+                app.move_selection_down();
                 return Ok(());
             }
         }

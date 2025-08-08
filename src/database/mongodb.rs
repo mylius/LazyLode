@@ -348,4 +348,13 @@ impl DatabaseConnection for MongoConnection {
             Err(anyhow::anyhow!("Not connected to database"))
         }
     }
+
+    async fn lookup_foreign_key(
+        &self,
+        _schema: &str,
+        _table: &str,
+        _column: &str,
+    ) -> Result<Option<ForeignKeyTarget>> {
+        Ok(None)
+    }
 }

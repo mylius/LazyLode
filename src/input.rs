@@ -49,43 +49,67 @@ pub enum Action {
     Cancel,
     CopyCell,
     CopyRow,
+    FollowForeignKey,
 }
 
 /// Defines the key configuration for different actions.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
 pub struct KeyConfig {
     // Direction keys for navigation
-    pub left_key: char,  // Default: 'h'
+    #[serde(default = "default_left_key")]
+    pub left_key: char, // Default: 'h'
+    #[serde(default = "default_right_key")]
     pub right_key: char, // Default: 'l'
-    pub up_key: char,    // Default: 'k'
-    pub down_key: char,  // Default: 'j'
+    #[serde(default = "default_up_key")]
+    pub up_key: char, // Default: 'k'
+    #[serde(default = "default_down_key")]
+    pub down_key: char, // Default: 'j'
 
     // Direct pane access keys
+    #[serde(default = "default_connections_key")]
     pub connections_key: char, // Default: 'c'
-    pub query_key: char,       // Default: 'q'
-    pub data_key: char,        // Default: 'd'
+    #[serde(default = "default_query_key")]
+    pub query_key: char, // Default: 'q'
+    #[serde(default = "default_data_key")]
+    pub data_key: char, // Default: 'd'
     //
     /// Key to trigger sorting in results pane.
+    #[serde(default = "default_sort_key")]
     pub sort_key: char, // Default: 's'
 
     // Tab navigation keys
+    #[serde(default = "default_next_tab_key")]
     pub next_tab_key: char, // Default: 'n'
+    #[serde(default = "default_prev_tab_key")]
     pub prev_tab_key: char, // Default: 'p'
 
     /// page navigation keys
+    #[serde(default = "default_first_page_key")]
     pub first_page_key: char, // Default: 'g'
+    #[serde(default = "default_last_page_key")]
     pub last_page_key: char, // Default: 'G'
+    #[serde(default = "default_next_page_key")]
     pub next_page_key: char, // Default: 'n'
+    #[serde(default = "default_prev_page_key")]
     pub prev_page_key: char, // Default: 'p'
     //
     // Edit and delete keys
-    pub edit_key: char,   // Default: 'e'
+    #[serde(default = "default_edit_key")]
+    pub edit_key: char, // Default: 'e'
+    #[serde(default = "default_delete_key")]
     pub delete_key: char, // Default: 'd'
 
+    #[serde(default = "default_copy_key")]
     pub copy_key: char, // Default: 'y'
 
     /// Modifier key to use for pane switching (Ctrl, Alt, Shift).
+    #[serde(default = "default_pane_modifier")]
     pub pane_modifier: PaneModifier,
+
+    /// Key to follow a foreign key (used with pane_modifier). Default provided if omitted in config
+    #[serde(default = "default_follow_fk_key")]
+    pub follow_fk_key: char,
 }
 
 impl Default for KeyConfig {
@@ -120,8 +144,69 @@ impl Default for KeyConfig {
             copy_key: 'y',
 
             pane_modifier: PaneModifier::Shift,
+
+            follow_fk_key: 'l',
         }
     }
+}
+
+fn default_follow_fk_key() -> char {
+    'l'
+}
+
+fn default_left_key() -> char {
+    'h'
+}
+fn default_right_key() -> char {
+    'l'
+}
+fn default_up_key() -> char {
+    'k'
+}
+fn default_down_key() -> char {
+    'j'
+}
+fn default_connections_key() -> char {
+    'c'
+}
+fn default_query_key() -> char {
+    'q'
+}
+fn default_data_key() -> char {
+    'd'
+}
+fn default_sort_key() -> char {
+    's'
+}
+fn default_next_tab_key() -> char {
+    'n'
+}
+fn default_prev_tab_key() -> char {
+    'p'
+}
+fn default_first_page_key() -> char {
+    'g'
+}
+fn default_last_page_key() -> char {
+    'G'
+}
+fn default_next_page_key() -> char {
+    ','
+}
+fn default_prev_page_key() -> char {
+    '.'
+}
+fn default_edit_key() -> char {
+    'e'
+}
+fn default_delete_key() -> char {
+    'd'
+}
+fn default_copy_key() -> char {
+    'y'
+}
+fn default_pane_modifier() -> PaneModifier {
+    PaneModifier::Shift
 }
 
 impl KeyConfig {
@@ -138,7 +223,8 @@ impl KeyConfig {
                     || c_lower == self.query_key.to_ascii_lowercase()
                     || c_lower == self.data_key.to_ascii_lowercase()
                     || c_lower == self.next_tab_key.to_ascii_lowercase()
-                    || c_lower == self.prev_tab_key.to_ascii_lowercase();
+                    || c_lower == self.prev_tab_key.to_ascii_lowercase()
+                    || c_lower == self.follow_fk_key.to_ascii_lowercase();
 
                 let is_pane_modifier_for_char = match self.pane_modifier {
                     PaneModifier::Ctrl => {
@@ -170,6 +256,9 @@ impl KeyConfig {
                         }
                         c if c == self.prev_tab_key.to_ascii_lowercase() => {
                             Some(Action::Navigation(NavigationAction::PreviousTab))
+                        }
+                        c if c == self.follow_fk_key.to_ascii_lowercase() => {
+                            Some(Action::FollowForeignKey)
                         }
                         _ => None,
                     }

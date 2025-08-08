@@ -6,6 +6,7 @@ use crate::ui::types::{Direction, Pane};
 use clipboard::{ClipboardContext, ClipboardProvider};
 
 use crate::config::Config;
+use crate::database::core::ForeignKeyTarget;
 use crate::database::{
     ConnectionConfig, ConnectionManager, ConnectionStatus, DatabaseConnection, DatabaseType,
     QueryParams, QueryResult,
@@ -224,6 +225,115 @@ impl App {
             .collect();
 
         app
+    }
+
+    pub async fn follow_foreign_key(&mut self) -> Result<()> {
+        let (conn_name, current_schema, current_table) = match &self.last_table_info {
+            Some(info) => info.clone(),
+            None => return Ok(()),
+        };
+
+        let (current_col_name, current_cell_value) = {
+            let (col, val) = if let Some(idx) = self.selected_result_tab_index {
+                if let Some((_, result, _)) = self.result_tabs.get(idx) {
+                    let col_idx = self.cursor_position.0;
+                    let row_idx = self.cursor_position.1;
+                    let col_name = result.columns.get(col_idx).cloned();
+                    let cell_val = result
+                        .rows
+                        .get(row_idx)
+                        .and_then(|r| r.get(col_idx))
+                        .cloned();
+                    (col_name, cell_val)
+                } else {
+                    (None, None)
+                }
+            } else {
+                (None, None)
+            };
+            match (col, val) {
+                (Some(c), Some(v)) if v.to_ascii_uppercase() != "NULL" => (c, v),
+                _ => return Ok(()),
+            }
+        };
+
+        let db = match self.connection_manager.get_connection(&conn_name) {
+            Some(db) => db,
+            None => return Ok(()),
+        };
+
+        if let Some(ForeignKeyTarget {
+            schema,
+            table,
+            column,
+        }) = db
+            .lookup_foreign_key(&current_schema, &current_table, &current_col_name)
+            .await?
+        {
+            let where_clause = format!(
+                "{} = '{}'",
+                column.replace('"', "\""),
+                current_cell_value.replace('\'', "''")
+            );
+            let params = QueryParams {
+                where_clause: Some(where_clause),
+                order_by: None,
+                limit: Some(50),
+                offset: None,
+            };
+
+            let result = db.fetch_table_data(&schema, &table, &params).await?;
+
+            let tab_name = format!("{}.{}", schema, table);
+            let tab_index = self
+                .result_tabs
+                .iter()
+                .position(|(name, _, _)| name == &tab_name);
+
+            let mut query_state = QueryState {
+                page_size: 50,
+                current_page: 1,
+                total_pages: Some(1),
+                total_records: Some(0),
+                sort_column: None,
+                sort_order: None,
+                rows_marked_for_deletion: HashSet::new(),
+                where_clause: params.where_clause.clone().unwrap_or_default(),
+                order_by_clause: String::new(),
+            };
+
+            let total_records = db
+                .count_table_rows(&schema, &table, params.where_clause.as_deref())
+                .await
+                .unwrap_or(result.rows.len() as u64);
+            let page_size = query_state.page_size.max(1);
+            let total_pages =
+                ((total_records + page_size as u64 - 1) / page_size as u64).max(1) as u32;
+
+            if let Some(index) = tab_index {
+                self.selected_result_tab_index = Some(index);
+                if let Some((_, ref mut result_slot, ref mut state)) =
+                    self.result_tabs.get_mut(index)
+                {
+                    *result_slot = result;
+                    state.total_records = Some(total_records);
+                    state.total_pages = Some(total_pages);
+                    state.current_page = 1;
+                    state.where_clause = query_state.where_clause.clone();
+                }
+            } else {
+                query_state.total_records = Some(total_records);
+                query_state.total_pages = Some(total_pages);
+                self.result_tabs.push((tab_name, result, query_state));
+                self.selected_result_tab_index = Some(self.result_tabs.len() - 1);
+                self.cursor_position = (0, 0);
+            }
+
+            self.last_table_info = Some((conn_name, schema, table));
+            self.active_pane = Pane::Results;
+        }
+
+        Ok(())
     }
 
     /// Sets the `should_quit` flag to true, signaling the application to terminate.
@@ -1000,6 +1110,9 @@ impl App {
                                                         .push((tab_name, result, new_state));
                                                     self.selected_result_tab_index =
                                                         Some(self.result_tabs.len() - 1);
+                                                    // Reset results cursor to top-left on newly opened table
+                                                    self.cursor_position = (0, 0);
+                                                    self.active_pane = Pane::Results;
                                                 }
 
                                                 self.last_table_info = Some((

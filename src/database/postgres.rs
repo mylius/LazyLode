@@ -409,4 +409,56 @@ impl DatabaseConnection for PostgresConnection {
             .unwrap_or(0);
         Ok(u64::try_from(count).unwrap_or(0))
     }
+
+    async fn lookup_foreign_key(
+        &self,
+        schema: &str,
+        table: &str,
+        column: &str,
+    ) -> Result<Option<ForeignKeyTarget>> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Not connected to database"))?;
+
+        let rows = client
+            .query(
+                r#"
+                SELECT
+                    tc.table_schema AS src_schema,
+                    tc.table_name AS src_table,
+                    kcu.column_name AS src_column,
+                    ccu.table_schema AS tgt_schema,
+                    ccu.table_name AS tgt_table,
+                    ccu.column_name AS tgt_column
+                FROM information_schema.table_constraints AS tc
+                JOIN information_schema.key_column_usage AS kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage AS ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                 AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                  AND tc.table_schema = $1
+                  AND tc.table_name = $2
+                  AND kcu.column_name = $3
+                LIMIT 1
+                "#,
+                &[&schema, &table, &column],
+            )
+            .await?;
+
+        if let Some(row) = rows.get(0) {
+            let tgt_schema: String = row.get("tgt_schema");
+            let tgt_table: String = row.get("tgt_table");
+            let tgt_column: String = row.get("tgt_column");
+            Ok(Some(ForeignKeyTarget {
+                schema: tgt_schema,
+                table: tgt_table,
+                column: tgt_column,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
 }

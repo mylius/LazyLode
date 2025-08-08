@@ -43,6 +43,13 @@ pub struct QueryResult {
     pub affected_rows: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct ForeignKeyTarget {
+    pub schema: String,
+    pub table: String,
+    pub column: String,
+}
+
 #[async_trait]
 pub trait DatabaseConnection: Send + Sync {
     /// Connect to the database
@@ -78,4 +85,12 @@ pub trait DatabaseConnection: Send + Sync {
         table: &str,
         where_clause: Option<&str>,
     ) -> Result<u64>;
+
+    /// Lookup the referenced table/column for a foreign key on a specific column
+    async fn lookup_foreign_key(
+        &self,
+        schema: &str,
+        table: &str,
+        column: &str,
+    ) -> Result<Option<ForeignKeyTarget>>;
 }
