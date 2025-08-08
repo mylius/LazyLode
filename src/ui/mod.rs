@@ -353,11 +353,15 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
     // Render pagination info with keybindings hint
     let pagination_info = if let Some(state) = query_state {
         format!(
-            "Page: {}/{} | Size: {} | Total: {} | g:First G:Last n:Next p:Prev",
+            "Page: {}/{} | Size: {} | Total: {} | {}:First {}:Last {}:Next {}:Prev",
             state.current_page,
             state.total_pages.unwrap_or(1),
             state.page_size,
-            state.total_records.unwrap_or(0)
+            state.total_records.unwrap_or(0),
+            app.config.keymap.first_page_key,
+            app.config.keymap.last_page_key,
+            app.config.keymap.next_page_key,
+            app.config.keymap.prev_page_key,
         )
     } else {
         String::from("No active table")
@@ -478,10 +482,27 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
 
         let header_row = Row::new(header_cells);
 
+        // Determine how many rows can be displayed and the starting index to keep cursor visible
+        let header_rows: u16 = 1;
+        let visible_capacity = table_inner.height.saturating_sub(header_rows).max(0) as usize;
+
+        let total_rows = result.rows.len();
+        let max_start = total_rows.saturating_sub(visible_capacity);
+        let cursor_row = app.cursor_position.1.min(total_rows.saturating_sub(1));
+        let start_row = if visible_capacity == 0 {
+            0
+        } else {
+            cursor_row
+                .saturating_sub(visible_capacity / 2)
+                .min(max_start)
+        };
+
         let rows: Vec<Row> = result
             .rows
             .iter()
             .enumerate()
+            .skip(start_row)
+            .take(visible_capacity)
             .map(|(row_idx, row)| {
                 let mut row_cells = vec![Cell::from(format!(
                     "{:>width$}",

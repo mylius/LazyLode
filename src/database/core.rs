@@ -70,4 +70,12 @@ pub trait DatabaseConnection: Send + Sync {
         table: &str,
         params: &QueryParams,
     ) -> Result<QueryResult>;
+
+    /// Count total rows matching the optional filter
+    async fn count_table_rows(
+        &self,
+        schema: &str,
+        table: &str,
+        where_clause: Option<&str>,
+    ) -> Result<u64>;
 }

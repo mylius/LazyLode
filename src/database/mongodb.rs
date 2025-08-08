@@ -326,4 +326,26 @@ impl DatabaseConnection for MongoConnection {
             Err(anyhow::anyhow!("Not connected to database"))
         }
     }
+
+    async fn count_table_rows(
+        &self,
+        _schema: &str,
+        table: &str,
+        where_clause: Option<&str>,
+    ) -> Result<u64> {
+        if let Some(db) = &self.current_db {
+            let collection = db.collection::<Document>(table);
+            let filter = match where_clause {
+                Some(w) if !w.trim().is_empty() => match serde_json::from_str::<Document>(w) {
+                    Ok(f) => f,
+                    Err(_) => doc! {},
+                },
+                _ => doc! {},
+            };
+            let count = collection.count_documents(filter).await?;
+            Ok(count as u64)
+        } else {
+            Err(anyhow::anyhow!("Not connected to database"))
+        }
+    }
 }

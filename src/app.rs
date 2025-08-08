@@ -870,6 +870,26 @@ impl App {
 
                 let result = connection.fetch_table_data(schema, table, &params).await?;
 
+                // Update totals
+                let total_records = match connection
+                    .count_table_rows(schema, table, params.where_clause.as_deref())
+                    .await
+                {
+                    Ok(count) => count,
+                    Err(_) => {
+                        // Fallback: infer at least the number of currently visible rows
+                        let offset = params.offset.unwrap_or(0) as u64;
+                        let visible = result.rows.len() as u64;
+                        (offset + visible).max(visible)
+                    }
+                };
+                if let Some(state) = self.current_query_state_mut() {
+                    state.total_records = Some(total_records);
+                    let page_size = state.page_size.max(1);
+                    let pages = ((total_records + page_size as u64 - 1) / page_size as u64) as u32;
+                    state.total_pages = Some(pages.max(1));
+                }
+
                 if let Some(idx) = self.selected_result_tab_index {
                     if idx < self.result_tabs.len() {
                         self.result_tabs[idx].1 = result;
@@ -934,8 +954,8 @@ impl App {
                                                 let query_state = QueryState {
                                                     page_size: 50, // Default page size
                                                     current_page: 1,
-                                                    total_pages: None,
-                                                    total_records: None,
+                                                    total_pages: Some(1),
+                                                    total_records: Some(0),
                                                     sort_column: None,
                                                     sort_order: None,
                                                     rows_marked_for_deletion: HashSet::new(),
@@ -943,20 +963,41 @@ impl App {
                                                     order_by_clause: String::new(),
                                                 };
 
+                                                // Compute totals immediately
+                                                let total_records = match db_connection
+                                                    .count_table_rows(&schema.name, table, None)
+                                                    .await
+                                                {
+                                                    Ok(count) => count,
+                                                    Err(_) => result.rows.len() as u64,
+                                                };
+                                                let page_size = query_state.page_size.max(1);
+                                                let total_pages =
+                                                    ((total_records + page_size as u64 - 1)
+                                                        / page_size as u64)
+                                                        .max(1)
+                                                        as u32;
+
                                                 if let Some(index) = tab_index {
                                                     self.selected_result_tab_index = Some(index);
-                                                    // Update the result but preserve existing query state
-                                                    let existing_state =
-                                                        self.result_tabs[index].2.clone();
-                                                    self.result_tabs[index] =
-                                                        (tab_name, result, existing_state);
+                                                    if let Some((
+                                                        _,
+                                                        ref mut result_slot,
+                                                        ref mut state,
+                                                    )) = self.result_tabs.get_mut(index)
+                                                    {
+                                                        *result_slot = result;
+                                                        state.total_records = Some(total_records);
+                                                        state.total_pages = Some(total_pages);
+                                                        state.current_page = 1;
+                                                    }
                                                 } else {
                                                     // Create new tab with new query state
-                                                    self.result_tabs.push((
-                                                        tab_name,
-                                                        result,
-                                                        query_state,
-                                                    ));
+                                                    let mut new_state = query_state;
+                                                    new_state.total_records = Some(total_records);
+                                                    new_state.total_pages = Some(total_pages);
+                                                    self.result_tabs
+                                                        .push((tab_name, result, new_state));
                                                     self.selected_result_tab_index =
                                                         Some(self.result_tabs.len() - 1);
                                                 }

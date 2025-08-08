@@ -176,6 +176,7 @@ impl KeyConfig {
                 } else {
                     // Normal mode actions (without modifier)
                     match c {
+                        c if c == self.first_page_key => Some(Action::FirstPage),
                         c if c == self.last_page_key => Some(Action::LastPage),
                         c if c == self.next_page_key => Some(Action::NextPage),
                         c if c == self.prev_page_key => Some(Action::PreviousPage),

@@ -377,4 +377,36 @@ impl DatabaseConnection for PostgresConnection {
         logging::debug(&format!("Executing query: {}", query))?;
         self.execute_query(&query).await
     }
+
+    async fn count_table_rows(
+        &self,
+        schema: &str,
+        table: &str,
+        where_clause: Option<&str>,
+    ) -> Result<u64> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Not connected to database"))?;
+
+        let schema_ident = sanitize_column_name(schema);
+        let table_ident = sanitize_column_name(table);
+
+        let mut query = format!(
+            "SELECT COUNT(*)::bigint FROM {}.{}",
+            schema_ident, table_ident
+        );
+        if let Some(w) = where_clause {
+            if !w.trim().is_empty() {
+                query.push_str(&format!(" WHERE {}", w));
+            }
+        }
+
+        let rows = client.query(&query, &[]).await?;
+        let count: i64 = rows
+            .get(0)
+            .and_then(|r| r.try_get::<_, i64>(0).ok())
+            .unwrap_or(0);
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
 }

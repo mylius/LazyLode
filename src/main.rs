@@ -290,6 +290,26 @@ async fn handle_connections_input_normal_mode(
                     app.handle_navigation(nav_action);
                 }
             },
+            Action::FirstPage => {
+                if let Err(e) = app.first_page().await {
+                    let _ = logging::error(&format!("Error going to first page: {}", e));
+                }
+            }
+            Action::PreviousPage => {
+                if let Err(e) = app.previous_page().await {
+                    let _ = logging::error(&format!("Error going to previous page: {}", e));
+                }
+            }
+            Action::NextPage => {
+                if let Err(e) = app.next_page().await {
+                    let _ = logging::error(&format!("Error going to next page: {}", e));
+                }
+            }
+            Action::LastPage => {
+                if let Err(e) = app.last_page().await {
+                    let _ = logging::error(&format!("Error going to last page: {}", e));
+                }
+            }
             Action::TreeAction(tree_action) => {
                 if let Err(e) = app.handle_tree_action(tree_action).await {
                     let _ = logging::error(&format!("Error in tree action: {}", e));
@@ -482,6 +502,26 @@ async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Resul
                     app.handle_navigation(nav_action);
                 }
             },
+            Action::FirstPage => {
+                if let Err(e) = app.first_page().await {
+                    let _ = logging::error(&format!("Error going to first page: {}", e));
+                }
+            }
+            Action::PreviousPage => {
+                if let Err(e) = app.previous_page().await {
+                    let _ = logging::error(&format!("Error going to previous page: {}", e));
+                }
+            }
+            Action::NextPage => {
+                if let Err(e) = app.next_page().await {
+                    let _ = logging::error(&format!("Error going to next page: {}", e));
+                }
+            }
+            Action::LastPage => {
+                if let Err(e) = app.last_page().await {
+                    let _ = logging::error(&format!("Error going to last page: {}", e));
+                }
+            }
             Action::Sort => {
                 if let Err(e) = app.sort_results().await {
                     let _ = logging::error(&format!("Error sorting results: {}", e));
