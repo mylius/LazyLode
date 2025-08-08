@@ -431,36 +431,29 @@ async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Resul
         return Ok(());
     }
 
-    // Handle key input with command buffer
-    match key.code {
-        KeyCode::Char(c) if key.modifiers.is_empty() => {
-            // Add character to command buffer
+    // Handle key input with command buffer (non-exclusive):
+    // Only early-return if a command was positively processed. Otherwise, fall through
+    // to regular action handling so keys like sort/tab still work.
+    if let KeyCode::Char(c) = key.code {
+        if key.modifiers.is_empty() {
             app.command_buffer.push(c);
-
-            // Try to process the command
             match command::CommandProcessor::process_command(app) {
                 Ok(true) => {
-                    // Command was processed successfully
                     return Ok(());
                 }
                 Ok(false) => {
-                    // Command not recognized or waiting for more input
-                    // For unrecognized commands that aren't prefixes of valid commands,
-                    // we could clear the buffer here
+                    // fall through to action handling
                 }
                 Err(e) => {
                     let _ = logging::error(&format!("Error processing command: {}", e));
                     app.command_buffer.clear();
                 }
             }
-
-            return Ok(());
-        }
-        _ => {
-            // For non-character keys, we might want to clear the command buffer
-            // or handle special cases (like function keys)
+        } else {
             app.command_buffer.clear();
         }
+    } else {
+        app.command_buffer.clear();
     }
 
     if let Some(action) = app.config.keymap.get_action(key.code, key.modifiers) {

@@ -1,15 +1,14 @@
 pub mod core;
-pub use core::{
-    DatabaseConnection,
-    QueryParams,
-    QueryResult,
-};
+pub use core::{DatabaseConnection, QueryParams, QueryResult};
 
 // Database implementations
-mod postgres;
 mod mongodb;
-pub use postgres::PostgresConnection;
+mod postgres;
 pub use mongodb::MongoConnection;
+pub use postgres::PostgresConnection;
+
+// SSH tunneling support
+pub mod ssh_tunnel;
 
 // Connection management
 pub mod factory;

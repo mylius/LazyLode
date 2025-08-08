@@ -1,4 +1,5 @@
 use super::core::*;
+use super::ssh_tunnel::SshTunnelProcess;
 use crate::logging;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -14,6 +15,7 @@ pub struct MongoConnection {
     config: super::ConnectionConfig,
     client: Option<Client>,
     current_db: Option<Database>,
+    ssh_tunnel: Option<SshTunnelProcess>,
 }
 
 impl MongoConnection {
@@ -22,22 +24,29 @@ impl MongoConnection {
             config,
             client: None,
             current_db: None,
+            ssh_tunnel: None,
         }
     }
 
     async fn setup_connection(&mut self) -> Result<Client> {
+        let (effective_host, effective_port) = if let Some(ref tunnel) = self.ssh_tunnel {
+            ("127.0.0.1".to_string(), tunnel.local_port)
+        } else {
+            (self.config.host.clone(), self.config.port)
+        };
+
         let connection_string = if !self.config.username.is_empty() {
             // Connection with authentication
             format!(
                 "mongodb://{}:{}@{}:{}",
                 self.config.username,
                 self.config.password.as_deref().unwrap_or(""),
-                self.config.host,
-                self.config.port
+                effective_host,
+                effective_port
             )
         } else {
             // Connection without authentication
-            format!("mongodb://{}:{}", self.config.host, self.config.port)
+            format!("mongodb://{}:{}", effective_host, effective_port)
         };
 
         let mut client_options = ClientOptions::parse(connection_string).await?;
@@ -136,6 +145,10 @@ impl MongoConnection {
 #[async_trait]
 impl DatabaseConnection for MongoConnection {
     async fn connect(&mut self) -> Result<()> {
+        if let Some(ssh) = &self.config.ssh_tunnel {
+            let tunnel = SshTunnelProcess::start(ssh, &self.config.host, self.config.port).await?;
+            self.ssh_tunnel = Some(tunnel);
+        }
         let client = self.setup_connection().await?;
         self.current_db = Some(client.database(&self.config.database));
         self.client = Some(client);
@@ -145,6 +158,10 @@ impl DatabaseConnection for MongoConnection {
     async fn disconnect(&mut self) -> Result<()> {
         self.client = None;
         self.current_db = None;
+        if let Some(tunnel) = &mut self.ssh_tunnel {
+            let _ = tunnel.stop().await;
+        }
+        self.ssh_tunnel = None;
         Ok(())
     }
 

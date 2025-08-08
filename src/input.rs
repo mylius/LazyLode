@@ -1,7 +1,4 @@
-use crate::{
-    logging,
-    ui::types::{Direction, Pane},
-};
+use crate::ui::types::{Direction, Pane};
 use crossterm::event::{KeyCode, KeyModifiers};
 use serde::{Deserialize, Serialize};
 
@@ -130,19 +127,34 @@ impl Default for KeyConfig {
 impl KeyConfig {
     /// Maps a key event to an `Action` based on the current key configuration.
     pub fn get_action(&self, code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
-        let is_pane_modifier = match self.pane_modifier {
-            PaneModifier::Ctrl => modifiers.contains(KeyModifiers::CONTROL),
-            PaneModifier::Alt => modifiers.contains(KeyModifiers::ALT),
-            PaneModifier::Shift => modifiers.contains(KeyModifiers::SHIFT),
-        };
-
         match code {
             KeyCode::Enter => Some(Action::Confirm),
             KeyCode::Esc => Some(Action::Cancel),
             KeyCode::Char(c) => {
-                if is_pane_modifier {
+                // Determine if pane modifier is effectively active for pane/tab keys only.
+                // Shift may be encoded as uppercase without the SHIFT flag in some terminals.
+                let c_lower = c.to_ascii_lowercase();
+                let is_pane_related_key = c_lower == self.connections_key.to_ascii_lowercase()
+                    || c_lower == self.query_key.to_ascii_lowercase()
+                    || c_lower == self.data_key.to_ascii_lowercase()
+                    || c_lower == self.next_tab_key.to_ascii_lowercase()
+                    || c_lower == self.prev_tab_key.to_ascii_lowercase();
+
+                let is_pane_modifier_for_char = match self.pane_modifier {
+                    PaneModifier::Ctrl => {
+                        modifiers.contains(KeyModifiers::CONTROL) && is_pane_related_key
+                    }
+                    PaneModifier::Alt => {
+                        modifiers.contains(KeyModifiers::ALT) && is_pane_related_key
+                    }
+                    PaneModifier::Shift => {
+                        (modifiers.contains(KeyModifiers::SHIFT) && is_pane_related_key)
+                            || (c.is_ascii_uppercase() && is_pane_related_key)
+                    }
+                };
+
+                if is_pane_modifier_for_char {
                     // Pane switching actions (only with modifier)
-                    let c_lower = c.to_ascii_lowercase(); // Case-insensitive matching
                     match c_lower {
                         c if c == self.connections_key.to_ascii_lowercase() => Some(
                             Action::Navigation(NavigationAction::FocusPane(Pane::Connections)),
@@ -153,6 +165,12 @@ impl KeyConfig {
                         c if c == self.data_key.to_ascii_lowercase() => Some(Action::Navigation(
                             NavigationAction::FocusPane(Pane::Results),
                         )),
+                        c if c == self.next_tab_key.to_ascii_lowercase() => {
+                            Some(Action::Navigation(NavigationAction::NextTab))
+                        }
+                        c if c == self.prev_tab_key.to_ascii_lowercase() => {
+                            Some(Action::Navigation(NavigationAction::PreviousTab))
+                        }
                         _ => None,
                     }
                 } else {

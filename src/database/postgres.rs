@@ -1,4 +1,5 @@
 use super::core::*;
+use super::ssh_tunnel::SshTunnelProcess;
 use crate::logging;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -7,6 +8,7 @@ use tokio_postgres::{Client, NoTls};
 pub struct PostgresConnection {
     config: super::ConnectionConfig,
     client: Option<Client>,
+    ssh_tunnel: Option<SshTunnelProcess>,
 }
 
 impl PostgresConnection {
@@ -14,14 +16,21 @@ impl PostgresConnection {
         Self {
             config,
             client: None,
+            ssh_tunnel: None,
         }
     }
 
     async fn setup_connection(&mut self) -> Result<Client> {
         let mut config = tokio_postgres::Config::new();
+        let (effective_host, effective_port) = if let Some(ref tunnel) = self.ssh_tunnel {
+            ("127.0.0.1", tunnel.local_port)
+        } else {
+            (self.config.host.as_str(), self.config.port)
+        };
+
         config
-            .host(&self.config.host)
-            .port(self.config.port)
+            .host(effective_host)
+            .port(effective_port)
             .user(&self.config.username)
             .password(self.config.password.as_deref().unwrap_or(""))
             .dbname(&self.config.database);
@@ -46,15 +55,28 @@ fn sanitize_column_name(column: &str) -> String {
     format!("\"{}\"", sanitized)
 }
 
+fn quote_identifier_exact(identifier: &str) -> String {
+    let escaped = identifier.replace('"', "\"");
+    format!("\"{}\"", escaped)
+}
+
 #[async_trait]
 impl DatabaseConnection for PostgresConnection {
     async fn connect(&mut self) -> Result<()> {
+        if let Some(ssh) = &self.config.ssh_tunnel {
+            let tunnel = SshTunnelProcess::start(ssh, &self.config.host, self.config.port).await?;
+            self.ssh_tunnel = Some(tunnel);
+        }
         self.client = Some(self.setup_connection().await?);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<()> {
         self.client = None;
+        if let Some(tunnel) = &mut self.ssh_tunnel {
+            let _ = tunnel.stop().await;
+        }
+        self.ssh_tunnel = None;
         Ok(())
     }
 
@@ -176,9 +198,29 @@ impl DatabaseConnection for PostgresConnection {
                                         "NULL".to_string()
                                     }
                                 }
-                                "varchar" | "text" | "name" | "char" | "json" | "jsonb" => {
+                                "varchar" | "text" | "name" | "char" => {
                                     if let Ok(Some(val)) = row.try_get::<_, Option<String>>(i) {
                                         val
+                                    } else {
+                                        "NULL".to_string()
+                                    }
+                                }
+                                "json" | "jsonb" => {
+                                    if let Ok(Some(val)) =
+                                        row.try_get::<_, Option<serde_json::Value>>(i)
+                                    {
+                                        val.to_string()
+                                    } else if let Ok(Some(val)) =
+                                        row.try_get::<_, Option<String>>(i)
+                                    {
+                                        val
+                                    } else {
+                                        "NULL".to_string()
+                                    }
+                                }
+                                "uuid" => {
+                                    if let Ok(Some(val)) = row.try_get::<_, Option<uuid::Uuid>>(i) {
+                                        val.to_string()
                                     } else {
                                         "NULL".to_string()
                                     }
@@ -213,6 +255,13 @@ impl DatabaseConnection for PostgresConnection {
                                 _ => {
                                     if let Ok(Some(val)) = row.try_get::<_, Option<String>>(i) {
                                         val
+                                    } else if let Ok(Some(val)) = row.try_get::<_, Option<&str>>(i)
+                                    {
+                                        val.to_string()
+                                    } else if let Ok(Some(val)) =
+                                        row.try_get::<_, Option<uuid::Uuid>>(i)
+                                    {
+                                        val.to_string()
                                     } else {
                                         "NULL".to_string()
                                     }
@@ -244,11 +293,46 @@ impl DatabaseConnection for PostgresConnection {
             schema, table
         ))?;
 
-        // Sanitize schema and table names
-        let schema = sanitize_column_name(schema);
-        let table = sanitize_column_name(table);
+        // Prepare identifiers
+        let schema_ident = sanitize_column_name(schema);
+        let table_ident = sanitize_column_name(table);
 
-        let mut query = format!("SELECT * FROM {}.{}", schema, table);
+        // Discover column names in ordinal order
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Not connected to database"))?;
+
+        let col_rows = client
+            .query(
+                "SELECT column_name
+                 FROM information_schema.columns
+                 WHERE table_schema = $1 AND table_name = $2
+                 ORDER BY ordinal_position",
+                &[&schema, &table],
+            )
+            .await?;
+
+        let column_names: Vec<String> = col_rows.iter().map(|r| r.get::<_, String>(0)).collect();
+
+        // Build select list casting each column to text to ensure enums/json/uuid display correctly
+        let select_list = if column_names.is_empty() {
+            "*".to_string()
+        } else {
+            column_names
+                .iter()
+                .map(|c| {
+                    let ident = quote_identifier_exact(c);
+                    format!("({})::text AS {}", ident, ident)
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
+        let mut query = format!(
+            "SELECT {} FROM {}.{}",
+            select_list, schema_ident, table_ident
+        );
 
         if let Some(where_clause) = &params.where_clause {
             if !where_clause.trim().is_empty() {
