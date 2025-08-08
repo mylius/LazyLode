@@ -431,10 +431,34 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
         let max_lines = result.rows.len();
         let line_num_width = max_lines.to_string().len().max(3) as u16; // Minimum width of 3
 
-        // Create widths vector with line number column plus data columns
-        let mut widths = vec![Constraint::Length(line_num_width + 1)]; // +1 for padding
-        let remaining_width = (100 - line_num_width as u16) / header.len() as u16;
-        widths.extend(vec![Constraint::Percentage(remaining_width); header.len()]);
+        // Compute exact column widths based on available inner width
+        let spacing: u16 = 1;
+        let table_inner = block.inner(area);
+        let first_col_w = line_num_width + 1; // +1 for padding
+        let mut widths: Vec<Constraint> = Vec::with_capacity(1 + header.len());
+        widths.push(Constraint::Length(first_col_w));
+        let data_cols = header.len() as u16;
+        if data_cols > 0 {
+            let total_spacing = spacing.saturating_mul(data_cols.saturating_sub(1));
+            let remaining_w = table_inner
+                .width
+                .saturating_sub(first_col_w)
+                .saturating_sub(total_spacing);
+            let base = if data_cols > 0 {
+                remaining_w / data_cols
+            } else {
+                0
+            };
+            let rem = if data_cols > 0 {
+                remaining_w % data_cols
+            } else {
+                0
+            };
+            for i in 0..data_cols {
+                let w = base + if i < rem { 1 } else { 0 };
+                widths.push(Constraint::Length(w));
+            }
+        }
 
         // Create header cells including line number column
         let mut header_cells = vec![Cell::from("#").style(
@@ -494,6 +518,7 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
         let table = Table::new(rows, widths)
             .header(header_row)
             .block(block)
+            .column_spacing(spacing)
             .style(Style::default().bg(app.config.theme.surface0_color()));
 
         frame.render_widget(table, area);

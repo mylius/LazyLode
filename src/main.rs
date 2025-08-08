@@ -9,14 +9,22 @@ mod ui;
 
 use anyhow::{Context, Result};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, MouseButton,
+        MouseEvent, MouseEventKind,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use input::TreeAction;
 use ratatui::{backend::CrosstermBackend, Terminal};
+use std::cmp::{max, min};
 use std::io;
 use std::panic;
+
+use ratatui::layout::Direction as LayoutDirection;
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::widgets::{Block, Borders};
 
 use crate::app::{ActiveBlock, App, ConnectionForm, InputMode};
 use crate::input::{Action, NavigationAction};
@@ -120,32 +128,37 @@ async fn run_app_tick<B: ratatui::backend::Backend>(
 ) -> io::Result<()> {
     terminal.draw(|f| ui::render(f, app))?;
 
-    if let Event::Key(key) = event::read()? {
-        if KeyCode::Char('q') == key.code && key.modifiers.is_empty() {
-            app.quit();
-        }
-        if app.show_connection_modal {
-            if let ActiveBlock::ConnectionModal = app.active_block {
-                handle_connection_modal_input(key, app).await?;
+    match event::read()? {
+        Event::Key(key) => {
+            if KeyCode::Char('q') == key.code && key.modifiers.is_empty() {
+                app.quit();
             }
-        } else {
-            match app.active_pane {
-                Pane::Connections => {
-                    handle_connections_input(key, app).await?;
+            if app.show_connection_modal {
+                if let ActiveBlock::ConnectionModal = app.active_block {
+                    handle_connection_modal_input(key, app).await?;
                 }
-                Pane::QueryInput => {
-                    handle_query_input(key, app).await?;
+            } else {
+                match app.active_pane {
+                    Pane::Connections => {
+                        handle_connections_input(key, app).await?;
+                    }
+                    Pane::QueryInput => {
+                        handle_query_input(key, app).await?;
+                    }
+                    Pane::Results => {
+                        handle_results_input(key, app).await?;
+                    }
                 }
-                Pane::Results => {
-                    handle_results_input(key, app).await?;
-                }
-                _ => {}
             }
-        }
 
-        if app.should_quit {
-            return Ok(());
+            if app.should_quit {
+                return Ok(());
+            }
         }
+        Event::Mouse(me) => {
+            handle_mouse_event(app, me).await?;
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -510,5 +523,232 @@ async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Resul
             _ => {}
         }
     }
+    Ok(())
+}
+
+async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
+    let (cols, rows) = crossterm::terminal::size()?;
+    let root = Rect::new(0, 0, cols, rows);
+
+    let v_chunks = Layout::default()
+        .direction(LayoutDirection::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(root);
+    let main_area = v_chunks[1];
+
+    let h_chunks = Layout::default()
+        .direction(LayoutDirection::Horizontal)
+        .constraints([Constraint::Percentage(20), Constraint::Percentage(80)])
+        .split(main_area);
+    let sidebar_area = h_chunks[0];
+    let main_panel_area = h_chunks[1];
+
+    let sidebar_chunks = Layout::default()
+        .direction(LayoutDirection::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(1)])
+        .split(sidebar_area);
+    let conn_list_area = sidebar_chunks[1];
+    let conn_list_inner = Block::default().borders(Borders::ALL).inner(conn_list_area);
+
+    let main_panel_chunks = Layout::default()
+        .direction(LayoutDirection::Vertical)
+        .constraints([
+            Constraint::Length(10),
+            Constraint::Length(3),
+            Constraint::Min(1),
+        ])
+        .split(main_panel_area);
+    let query_area = main_panel_chunks[0];
+    let tabs_area = main_panel_chunks[1];
+    let results_area = main_panel_chunks[2];
+
+    let query_chunks = Layout::default()
+        .direction(LayoutDirection::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+        ])
+        .split(query_area);
+    let where_inner = Block::default()
+        .borders(Borders::ALL)
+        .inner(query_chunks[0]);
+    let order_by_inner = Block::default()
+        .borders(Borders::ALL)
+        .inner(query_chunks[1]);
+    let _pagination_inner = Block::default()
+        .borders(Borders::ALL)
+        .inner(query_chunks[2]);
+
+    let results_inner = Block::default().borders(Borders::ALL).inner(results_area);
+
+    let x = me.column;
+    let y = me.row;
+
+    match me.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            // Sidebar: connections list
+            if x >= conn_list_inner.x
+                && x < conn_list_inner.x + conn_list_inner.width
+                && y >= conn_list_inner.y
+                && y < conn_list_inner.y + conn_list_inner.height
+            {
+                app.active_pane = Pane::Connections;
+                let rel_y = y.saturating_sub(conn_list_inner.y);
+                let total_items = app.get_total_visible_items() as u16;
+                if total_items > 0 {
+                    let idx = min(rel_y, total_items - 1) as usize;
+                    if app.selected_connection_idx == Some(idx) {
+                        if let Err(e) = app.toggle_tree_item(idx).await {
+                            let _ = logging::error(&format!(
+                                "Error toggling tree item at {}: {}",
+                                idx, e
+                            ));
+                        }
+                    } else {
+                        app.selected_connection_idx = Some(idx);
+                    }
+                }
+                return Ok(());
+            }
+
+            // Query input: WHERE block
+            if x >= where_inner.x
+                && x < where_inner.x + where_inner.width
+                && y >= where_inner.y
+                && y < where_inner.y + where_inner.height
+            {
+                app.active_pane = Pane::QueryInput;
+                app.input_mode = InputMode::Insert;
+                app.cursor_position.0 = 0;
+                let rel_x = x.saturating_sub(where_inner.x) as usize;
+                let len = app.get_current_field_length();
+                app.cursor_position.1 = min(rel_x, len);
+                return Ok(());
+            }
+
+            // Query input: ORDER BY block
+            if x >= order_by_inner.x
+                && x < order_by_inner.x + order_by_inner.width
+                && y >= order_by_inner.y
+                && y < order_by_inner.y + order_by_inner.height
+            {
+                app.active_pane = Pane::QueryInput;
+                app.input_mode = InputMode::Insert;
+                app.cursor_position.0 = 1;
+                let rel_x = x.saturating_sub(order_by_inner.x) as usize;
+                let len = app.get_current_field_length();
+                app.cursor_position.1 = min(rel_x, len);
+                return Ok(());
+            }
+
+            // Tabs: switch by approximate segment
+            if x >= tabs_area.x
+                && x < tabs_area.x + tabs_area.width
+                && y >= tabs_area.y
+                && y < tabs_area.y + tabs_area.height
+            {
+                if let Some(tab_count) = Some(app.result_tabs.len()).filter(|c| *c > 0) {
+                    let seg_w = max(1, tabs_area.width / tab_count as u16);
+                    let rel_x = x.saturating_sub(tabs_area.x);
+                    let idx = min((rel_x / seg_w) as usize, tab_count - 1);
+                    app.selected_result_tab_index = Some(idx);
+                }
+                return Ok(());
+            }
+
+            // Results table: select row/column approximately
+            if x >= results_inner.x
+                && x < results_inner.x + results_inner.width
+                && y >= results_inner.y
+                && y < results_inner.y + results_inner.height
+            {
+                app.active_pane = Pane::Results;
+                if let Some((_, result, _)) = app
+                    .selected_result_tab_index
+                    .and_then(|idx| app.result_tabs.get(idx))
+                {
+                    if !result.rows.is_empty() {
+                        let header_rows = 1u16;
+                        if y >= results_inner.y + header_rows {
+                            let rel_y = y - results_inner.y - header_rows;
+                            let row_idx = min(rel_y as usize, result.rows.len() - 1);
+                            app.cursor_position.1 = row_idx;
+                        }
+
+                        // Column mapping using exact remainder distribution and spacing
+                        let data_cols = result.columns.len();
+                        if data_cols > 0 {
+                            let max_lines = result.rows.len();
+                            let line_num_width =
+                                max(3usize, max_lines.to_string().len()) as u16 + 1;
+                            if x >= results_inner.x + line_num_width {
+                                let dc = data_cols as u16;
+                                let spacing: u16 = 1;
+                                let total_spacing = spacing.saturating_mul(dc.saturating_sub(1));
+                                let remaining_w = results_inner
+                                    .width
+                                    .saturating_sub(line_num_width)
+                                    .saturating_sub(total_spacing);
+                                let base = if dc > 0 { remaining_w / dc } else { 0 };
+                                let rem = if dc > 0 { remaining_w % dc } else { 0 };
+                                let rel_x = x - results_inner.x - line_num_width;
+
+                                // Walk through buckets: rem left-most buckets have width base+1, others base
+                                let mut acc: u16 = 0;
+                                let mut idx: usize = 0;
+                                for i in 0..dc {
+                                    let w = base + if i < rem { 1 } else { 0 };
+                                    let next_acc = acc + w;
+                                    if rel_x < next_acc {
+                                        idx = i as usize;
+                                        break;
+                                    }
+                                    // add spacing after each column except last
+                                    acc = next_acc + if i + 1 < dc { spacing } else { 0 };
+                                    if i + 1 == dc {
+                                        idx = i as usize;
+                                    }
+                                }
+                                app.cursor_position.0 = min(idx, data_cols - 1);
+                            }
+                        }
+                    }
+                }
+                return Ok(());
+            }
+        }
+        MouseEventKind::ScrollUp => {
+            // Prefer scrolling where the mouse is
+            if y >= conn_list_inner.y && y < conn_list_inner.y + conn_list_inner.height {
+                app.active_pane = Pane::Connections;
+                app.move_selection_up();
+                return Ok(());
+            }
+            if y >= results_inner.y && y < results_inner.y + results_inner.height {
+                app.active_pane = Pane::Results;
+                app.move_cursor_in_results(crate::ui::types::Direction::Up);
+                return Ok(());
+            }
+        }
+        MouseEventKind::ScrollDown => {
+            if y >= conn_list_inner.y && y < conn_list_inner.y + conn_list_inner.height {
+                app.active_pane = Pane::Connections;
+                app.move_selection_down();
+                return Ok(());
+            }
+            if y >= results_inner.y && y < results_inner.y + results_inner.height {
+                app.active_pane = Pane::Results;
+                app.move_cursor_in_results(crate::ui::types::Direction::Down);
+                return Ok(());
+            }
+        }
+        _ => {}
+    }
+
     Ok(())
 }
