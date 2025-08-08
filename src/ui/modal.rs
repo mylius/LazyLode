@@ -26,7 +26,7 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 }
 
 pub fn render_connection_modal(frame: &mut Frame, app: &crate::app::App) {
-    let area = centered_rect(60, 50, frame.size());
+    let area = centered_rect(60, 50, frame.area());
 
     frame.render_widget(Clear, area);
     frame.render_widget(
@@ -84,7 +84,7 @@ pub fn render_connection_modal(frame: &mut Frame, app: &crate::app::App) {
 }
 
 pub fn render_deletion_modal(frame: &mut Frame, app: &crate::app::App) {
-    let area = centered_rect(70, 60, frame.size());
+    let area = centered_rect(70, 60, frame.area());
 
     frame.render_widget(Clear, area);
 
@@ -153,9 +153,8 @@ pub fn render_deletion_modal(frame: &mut Frame, app: &crate::app::App) {
                 result.columns.len()
             ];
 
-            let table = Table::new(rows)
+            let table = Table::new(rows, widths)
                 .header(header)
-                .widths(&widths)
                 .style(Style::default().bg(app.config.theme.surface1_color()));
 
             frame.render_widget(table, chunks[1]);

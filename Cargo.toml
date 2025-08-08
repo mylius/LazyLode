@@ -4,21 +4,20 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ratatui = "0.24.0"
-clipboard = "0.5.0"
-crossterm = "0.27.0"
-anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
-dirs = "5.0"
-tokio = { version = "1.0", features = ["full"] }
+ratatui = "0.29"
+clipboard = "0.5"
+crossterm = "0.29"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+dirs = "6"
+tokio = { version = "1", features = ["full"] }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-uuid-1", "with-serde_json-1"] }
-mongodb = "2.8"
+mongodb = "3"
 ssh2 = "0.9"
 async-trait = "0.1"
 futures = "0.3"
 chrono = "0.4"
 lazy_static = "1.4"
-serde_json = "1.0"
-xcb = ">=1.0"
+serde_json = "1"
 uuid = { version = "1", features = ["serde"] }

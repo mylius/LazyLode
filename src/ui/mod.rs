@@ -23,7 +23,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     // Set background color for the entire frame
     frame.render_widget(
         Block::default().style(Style::default().bg(app.config.theme.base_color())),
-        frame.size(),
+        frame.area(),
     );
 
     // Define vertical chunks for status bar, main content, and command bar
@@ -34,7 +34,7 @@ pub fn render(frame: &mut Frame, app: &App) {
             Constraint::Min(1),    // Main content area (flexible height)
             Constraint::Length(1), // Command bar height
         ])
-        .split(frame.size());
+        .split(frame.area());
 
     render_status_bar(frame, app, chunks[0]);
     render_main_content(frame, app, chunks[1]);
@@ -491,10 +491,9 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
             })
             .collect();
 
-        let table = Table::new(rows)
+        let table = Table::new(rows, widths)
             .header(header_row)
             .block(block)
-            .widths(&widths)
             .style(Style::default().bg(app.config.theme.surface0_color()));
 
         frame.render_widget(table, area);

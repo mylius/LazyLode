@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use futures::TryStreamExt;
 use mongodb::{
     bson::{doc, Bson, Document},
-    options::{ClientOptions, FindOptions},
+    options::ClientOptions,
     Client, Database,
 };
 use std::collections::HashSet;
@@ -168,7 +168,7 @@ impl DatabaseConnection for MongoConnection {
     async fn list_databases(&self) -> Result<Vec<String>> {
         if let Some(client) = &self.client {
             let mut names = Vec::new();
-            let dbs = client.list_database_names(None, None).await?;
+            let dbs = client.list_database_names().await?;
 
             for name in dbs {
                 if !name.starts_with("admin") && !name.starts_with("local") {
@@ -192,7 +192,7 @@ impl DatabaseConnection for MongoConnection {
         // For MongoDB, list collections under the default schema
         if let Some(client) = &self.client {
             let db = client.database(&self.config.database);
-            Ok(db.list_collection_names(None).await?)
+            Ok(db.list_collection_names().await?)
         } else {
             Err(anyhow::anyhow!("Not connected to database"))
         }
@@ -202,7 +202,7 @@ impl DatabaseConnection for MongoConnection {
         if let Some(db) = &self.current_db {
             let filter: Document = serde_json::from_str(query)?;
             let collection = db.collection::<Document>("default_collection");
-            let mut cursor = collection.find(filter, None).await?;
+            let mut cursor = collection.find(filter).await?;
 
             let mut columns = Vec::new();
             let mut rows = Vec::new();
@@ -249,7 +249,6 @@ impl DatabaseConnection for MongoConnection {
             logging::debug(&format!("Fetching data from table: {}", table))?;
 
             let collection = db.collection::<Document>(table);
-            let mut options = FindOptions::default();
 
             // Build filter from where clause
             let filter = match &params.where_clause {
@@ -265,29 +264,14 @@ impl DatabaseConnection for MongoConnection {
                 _ => doc! {},
             };
 
-            // Handle sorting
-            if let Some(order_by) = &params.order_by {
-                if let Some(sort_doc) = self.parse_sort_expression(order_by).await {
-                    logging::debug(&format!("Applying sort: {:?}", sort_doc))?;
-                    options.sort = Some(sort_doc);
-                }
-            }
-
-            // Handle pagination
+            // Build query options via builder-style API
             let limit = params.limit.unwrap_or(50).max(1) as i64;
-            options.limit = Some(limit);
-
-            if let Some(offset) = params.offset {
-                options.skip = Some(offset as u64);
-            }
 
             // First, get a sample document to determine the schema
             let mut columns = HashSet::new();
 
             // Sample a few documents to get a comprehensive schema
-            let mut sample_options = FindOptions::default();
-            sample_options.limit = Some(10);
-            let mut sample_cursor = collection.find(doc! {}, sample_options).await?;
+            let mut sample_cursor = collection.find(doc! {}).limit(10).await?;
 
             while let Some(doc) = sample_cursor.try_next().await? {
                 logging::debug(&format!("Sample doc: {:?}", doc))?;
@@ -299,7 +283,17 @@ impl DatabaseConnection for MongoConnection {
             columns.sort();
 
             // Now fetch the actual data
-            let mut cursor = collection.find(filter, options).await?;
+            let mut find_builder = collection.find(filter).limit(limit);
+            if let Some(order_by) = &params.order_by {
+                if let Some(sort_doc) = self.parse_sort_expression(order_by).await {
+                    logging::debug(&format!("Applying sort: {:?}", sort_doc))?;
+                    find_builder = find_builder.sort(sort_doc);
+                }
+            }
+            if let Some(offset) = params.offset {
+                find_builder = find_builder.skip(offset as u64);
+            }
+            let mut cursor = find_builder.await?;
             let mut rows = Vec::new();
             let mut affected_rows = 0;
 
