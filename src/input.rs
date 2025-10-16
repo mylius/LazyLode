@@ -94,6 +94,9 @@ pub struct KeyConfig {
     #[serde(default = "default_prev_page_key")]
     pub prev_page_key: char, // Default: 'p'
     //
+    #[serde(default = "default_search_key")]
+    pub search_key: char,
+    //
     // Edit and delete keys
     #[serde(default = "default_edit_key")]
     pub edit_key: char, // Default: 'e'
@@ -134,8 +137,10 @@ impl Default for KeyConfig {
 
             first_page_key: 'g',
             last_page_key: 'G',
-            next_page_key: ',',
-            prev_page_key: '.',
+            prev_page_key: ',',
+            next_page_key: '.',
+
+            search_key: '/',
 
             // Edit and delete keys
             edit_key: 'e',
@@ -195,6 +200,9 @@ fn default_next_page_key() -> char {
 }
 fn default_prev_page_key() -> char {
     '.'
+}
+fn default_search_key() -> char {
+    '/'
 }
 fn default_edit_key() -> char {
     'e'

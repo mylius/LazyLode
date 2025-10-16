@@ -1,4 +1,4 @@
-use crate::database::ConnectionConfig;
+use crate::database::{ConnectionConfig, SSHConfig};
 use crate::input::KeyConfig;
 use crate::theme::Theme;
 use anyhow::{Context, Result};
@@ -12,6 +12,8 @@ pub struct ConfigFile {
     pub database: DatabaseConfig,
     #[serde(default)]
     pub connections: Vec<ConnectionConfig>,
+    #[serde(default)]
+    pub ssh_tunnels: Vec<SSHTunnelProfile>,
     #[serde(default)]
     pub keymap: KeyConfig,
 }
@@ -28,7 +30,15 @@ pub struct Config {
     pub theme: Theme,
     pub database: DatabaseConfig,
     pub connections: Vec<ConnectionConfig>,
+    pub ssh_tunnels: Vec<SSHTunnelProfile>,
     pub keymap: KeyConfig,
+}
+
+#[derive(Deserialize, Serialize, Default, Clone)]
+pub struct SSHTunnelProfile {
+    pub name: String,
+    #[serde(flatten)]
+    pub config: SSHConfig,
 }
 
 impl Config {
@@ -71,6 +81,7 @@ impl Config {
                     default_port_mongodb: 27017,
                 },
                 connections: Vec::new(),
+                ssh_tunnels: Vec::new(),
                 keymap: KeyConfig::default(),
             };
 
@@ -90,6 +101,7 @@ impl Config {
                 theme: String::from("default"),
                 database: DatabaseConfig::default(),
                 connections: Vec::new(),
+                ssh_tunnels: Vec::new(),
                 keymap: KeyConfig::default(),
             }
         });
@@ -104,6 +116,7 @@ impl Config {
             theme_name: config_file.theme,
             database: config_file.database,
             connections: config_file.connections,
+            ssh_tunnels: config_file.ssh_tunnels,
             keymap: config_file.keymap,
         }
     }
@@ -140,6 +153,7 @@ impl Config {
             theme: self.theme_name.clone(),
             database: self.database.clone(),
             connections: self.connections.clone(),
+            ssh_tunnels: self.ssh_tunnels.clone(),
             keymap: self.keymap.clone(),
         };
 

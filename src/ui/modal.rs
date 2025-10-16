@@ -51,25 +51,31 @@ pub fn render_connection_modal(frame: &mut Frame, app: &crate::app::App) {
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
+            Constraint::Length(3),
         ])
         .split(area);
 
-    let fields = [
-        ("Name:", &app.connection_form.name),
-        ("Host:", &app.connection_form.host),
-        ("Port:", &app.connection_form.port),
-        ("Username:", &app.connection_form.username),
-        ("Password:", &app.connection_form.password),
-        ("Database:", &app.connection_form.database),
+    let ssh_tunnel_label = "SSH Tunnel:".to_string();
+    let ssh_tunnel_value = app
+        .connection_form
+        .ssh_tunnel_name
+        .clone()
+        .unwrap_or_else(|| "None".to_string());
+
+    let fields: Vec<(String, String)> = vec![
+        ("Name:".into(), app.connection_form.name.clone()),
+        ("Host:".into(), app.connection_form.host.clone()),
+        ("Port:".into(), app.connection_form.port.clone()),
+        ("Username:".into(), app.connection_form.username.clone()),
+        (
+            "Password:".into(),
+            "*".repeat(app.connection_form.password.len()),
+        ),
+        ("Database:".into(), app.connection_form.database.clone()),
+        (ssh_tunnel_label, ssh_tunnel_value),
     ];
 
     for (i, (label, value)) in fields.iter().enumerate() {
-        let content = if *label == "Password:" {
-            "*".repeat(value.len())
-        } else {
-            value.to_string()
-        };
-
         let style = if i == app.connection_form.current_field {
             Style::default().fg(app.config.theme.accent_color())
         } else {
@@ -77,7 +83,7 @@ pub fn render_connection_modal(frame: &mut Frame, app: &crate::app::App) {
         };
 
         frame.render_widget(
-            Paragraph::new(format!("{} {}", label, content)).style(style),
+            Paragraph::new(format!("{} {}", label, value)).style(style),
             modal_layout[i],
         );
     }

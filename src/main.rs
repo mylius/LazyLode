@@ -9,6 +9,7 @@ mod ui;
 
 use anyhow::{Context, Result};
 use crossterm::{
+    cursor::SetCursorStyle,
     event::{
         self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, MouseButton,
         MouseEvent, MouseEventKind,
@@ -27,7 +28,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::widgets::{Block, Borders};
 
 use crate::app::{ActiveBlock, App, ConnectionForm, InputMode};
-use crate::input::{Action, NavigationAction};
+use crate::input::{Action, KeyConfig, NavigationAction};
 use crate::ui::types::{Direction, Pane};
 
 fn setup_panic_hook() {
@@ -122,16 +123,39 @@ async fn run_app<B: ratatui::backend::Backend>(
     }
 }
 
+fn matches_search_key(keymap: &KeyConfig, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Char(c) => c == keymap.search_key,
+        _ => false,
+    }
+}
+
 async fn run_app_tick<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
 ) -> io::Result<()> {
     terminal.draw(|f| ui::render(f, app))?;
 
+    // Update terminal cursor style based on input mode
+    let cursor_style = match app.input_mode {
+        InputMode::Normal => SetCursorStyle::SteadyBlock,
+        _ => SetCursorStyle::SteadyBar,
+    };
+    let _ = execute!(io::stdout(), cursor_style);
+
     match event::read()? {
         Event::Key(key) => {
             if KeyCode::Char('q') == key.code && key.modifiers.is_empty() {
                 app.quit();
+            }
+            if app.input_mode == InputMode::Normal
+                && key.modifiers.is_empty()
+                && matches_search_key(&app.config.keymap, key.code)
+            {
+                if !app.show_connection_modal {
+                    app.focus_where_input();
+                }
+                return Ok(());
             }
             if app.show_connection_modal {
                 if let ActiveBlock::ConnectionModal = app.active_block {
@@ -183,10 +207,10 @@ async fn handle_connection_modal_input_normal_mode(
             app.toggle_connection_modal();
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            app.connection_form.current_field = (app.connection_form.current_field + 1) % 6;
+            app.connection_form.current_field = (app.connection_form.current_field + 1) % 7;
         }
         KeyCode::Up | KeyCode::Char('k') => {
-            app.connection_form.current_field = (app.connection_form.current_field + 5) % 6;
+            app.connection_form.current_field = (app.connection_form.current_field + 6) % 7;
         }
         _ => {}
     }
@@ -208,10 +232,10 @@ async fn handle_connection_modal_input_insert_mode(
         }
         KeyCode::Down | KeyCode::Up => match key.code {
             KeyCode::Down => {
-                app.connection_form.current_field = (app.connection_form.current_field + 1) % 6;
+                app.connection_form.current_field = (app.connection_form.current_field + 1) % 7;
             }
             KeyCode::Up => {
-                app.connection_form.current_field = (app.connection_form.current_field + 5) % 6;
+                app.connection_form.current_field = (app.connection_form.current_field + 6) % 7;
             }
             _ => {}
         },
@@ -234,15 +258,70 @@ async fn handle_connection_modal_input_insert_mode(
             5 => {
                 app.connection_form.database.pop();
             }
+            6 => {
+                // clear selection to None
+                app.connection_form.ssh_tunnel_name = None;
+            }
             _ => {}
         },
+        KeyCode::Left => {
+            if app.connection_form.current_field == 6 {
+                let names: Vec<String> = app
+                    .config
+                    .ssh_tunnels
+                    .iter()
+                    .map(|t| t.name.clone())
+                    .collect();
+                if names.is_empty() {
+                    app.connection_form.ssh_tunnel_name = None;
+                } else {
+                    let current_idx = app
+                        .connection_form
+                        .ssh_tunnel_name
+                        .as_ref()
+                        .and_then(|n| names.iter().position(|x| x == n))
+                        .unwrap_or(0);
+                    let new_idx = if current_idx == 0 {
+                        None
+                    } else {
+                        Some(current_idx - 1)
+                    };
+                    app.connection_form.ssh_tunnel_name = new_idx.map(|i| names[i].clone());
+                }
+            }
+        }
+        KeyCode::Right => {
+            if app.connection_form.current_field == 6 {
+                let names: Vec<String> = app
+                    .config
+                    .ssh_tunnels
+                    .iter()
+                    .map(|t| t.name.clone())
+                    .collect();
+                if names.is_empty() {
+                    app.connection_form.ssh_tunnel_name = None;
+                } else {
+                    let maybe_idx = app
+                        .connection_form
+                        .ssh_tunnel_name
+                        .as_ref()
+                        .and_then(|n| names.iter().position(|x| x == n));
+                    let new_idx = match maybe_idx {
+                        None => Some(0),
+                        Some(i) if i + 1 < names.len() => Some(i + 1),
+                        _ => None, // wrap to None
+                    };
+                    app.connection_form.ssh_tunnel_name = new_idx.map(|i| names[i].clone());
+                }
+            }
+        }
         KeyCode::Char(c) => {
             // For port field, only allow numeric input
             if app.connection_form.current_field == 2 {
                 if c.is_ascii_digit() {
                     app.connection_form.port.push(c);
                 }
-            } else {
+            } else if app.connection_form.current_field != 6 {
                 // For other fields, allow any character
                 match app.connection_form.current_field {
                     0 => app.connection_form.name.push(c),
@@ -349,6 +428,7 @@ async fn handle_connections_input_normal_mode(
                             .unwrap_or_default()
                             .private_key_path
                             .unwrap_or_default(),
+                        ssh_tunnel_name: connection.ssh_tunnel_name.clone(),
                     };
                     app.show_connection_modal = true;
                     app.active_block = ActiveBlock::ConnectionModal;
@@ -386,23 +466,100 @@ async fn handle_query_input(key: KeyEvent, app: &mut App) -> Result<(), io::Erro
 }
 
 async fn handle_query_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    // First handle query-pane Vim-like keys explicitly
+    match key.code {
+        KeyCode::Char('i') if key.modifiers.is_empty() => {
+            app.input_mode = InputMode::Insert;
+            app.last_key_was_d = false;
+            app.awaiting_replace = false;
+            return Ok(());
+        }
+        KeyCode::Char('a') if key.modifiers.is_empty() => {
+            let max_pos = app.get_current_field_length();
+            if app.cursor_position.1 < max_pos {
+                app.cursor_position.1 += 1;
+            }
+            app.input_mode = InputMode::Insert;
+            app.last_key_was_d = false;
+            app.awaiting_replace = false;
+            return Ok(());
+        }
+        KeyCode::Char('h') | KeyCode::Left if key.modifiers.is_empty() => {
+            app.handle_navigation(NavigationAction::Direction(Direction::Left));
+            app.last_key_was_d = false;
+            app.awaiting_replace = false;
+            return Ok(());
+        }
+        KeyCode::Char('l') | KeyCode::Right if key.modifiers.is_empty() => {
+            app.handle_navigation(NavigationAction::Direction(Direction::Right));
+            app.last_key_was_d = false;
+            app.awaiting_replace = false;
+            return Ok(());
+        }
+        KeyCode::Char('k') | KeyCode::Up if key.modifiers.is_empty() => {
+            app.handle_navigation(NavigationAction::Direction(Direction::Up));
+            app.last_key_was_d = false;
+            app.awaiting_replace = false;
+            return Ok(());
+        }
+        KeyCode::Char('j') | KeyCode::Down if key.modifiers.is_empty() => {
+            app.handle_navigation(NavigationAction::Direction(Direction::Down));
+            app.last_key_was_d = false;
+            app.awaiting_replace = false;
+            return Ok(());
+        }
+        KeyCode::Char('d') if key.modifiers.is_empty() => {
+            if app.last_key_was_d {
+                app.clear_current_field();
+                app.last_key_was_d = false;
+            } else {
+                app.delete_char_at_cursor();
+                app.last_key_was_d = true;
+            }
+            app.awaiting_replace = false;
+            return Ok(());
+        }
+        KeyCode::Char('r') if key.modifiers.is_empty() => {
+            app.awaiting_replace = true;
+            app.last_key_was_d = false;
+            return Ok(());
+        }
+        KeyCode::Char(c) if key.modifiers.is_empty() => {
+            if app.awaiting_replace {
+                app.replace_char_at_cursor(c);
+                app.awaiting_replace = false;
+                app.last_key_was_d = false;
+                return Ok(());
+            }
+        }
+        _ => {}
+    }
+
+    // Fallback to keymap (pane switching etc.)
     if let Some(action) = app.config.keymap.get_action(key.code, key.modifiers) {
         match action {
             Action::Navigation(NavigationAction::FocusPane(pane)) => {
                 app.active_pane = pane;
+                if pane == Pane::QueryInput {
+                    // Ensure a valid cursor position when focusing query pane
+                    let len = app.get_current_field_length();
+                    app.cursor_position.1 = app.cursor_position.1.min(len);
+                }
+            }
+            Action::Navigation(NavigationAction::FocusPane(pane)) => {
+                app.active_pane = pane;
+                if pane == Pane::QueryInput {
+                    let len = app.get_current_field_length();
+                    app.cursor_position.1 = app.cursor_position.1.min(len);
+                }
             }
             Action::Navigation(nav_action) => {
                 app.handle_navigation(nav_action);
             }
             _ => {}
         }
-    } else {
-        match key.code {
-            KeyCode::Char('i') if key.modifiers.is_empty() => {
-                app.input_mode = InputMode::Insert;
-            }
-            _ => {}
-        }
+        app.last_key_was_d = false;
+        app.awaiting_replace = false;
     }
     Ok(())
 }
@@ -601,23 +758,40 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
 
     let main_panel_chunks = Layout::default()
         .direction(LayoutDirection::Vertical)
-        .constraints([
-            Constraint::Length(10),
-            Constraint::Length(3),
-            Constraint::Min(1),
-        ])
+        .constraints([Constraint::Length(8), Constraint::Min(1)])
         .split(main_panel_area);
     let query_area = main_panel_chunks[0];
-    let tabs_area = main_panel_chunks[1];
-    let results_area = main_panel_chunks[2];
+    let results_panel_area = main_panel_chunks[1];
+
+    let result_panel_chunks = if app.result_tabs.is_empty() {
+        Layout::default()
+            .direction(LayoutDirection::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(3)])
+            .split(results_panel_area)
+    } else {
+        Layout::default()
+            .direction(LayoutDirection::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(1),
+                Constraint::Length(3),
+            ])
+            .split(results_panel_area)
+    };
+
+    let (tabs_area, results_area, pagination_area) = if app.result_tabs.is_empty() {
+        (None, result_panel_chunks[0], result_panel_chunks[1])
+    } else {
+        (
+            Some(result_panel_chunks[0]),
+            result_panel_chunks[1],
+            result_panel_chunks[2],
+        )
+    };
 
     let query_chunks = Layout::default()
         .direction(LayoutDirection::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-        ])
+        .constraints([Constraint::Length(3), Constraint::Length(3)])
         .split(query_area);
     let where_inner = Block::default()
         .borders(Borders::ALL)
@@ -625,11 +799,11 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
     let order_by_inner = Block::default()
         .borders(Borders::ALL)
         .inner(query_chunks[1]);
-    let _pagination_inner = Block::default()
-        .borders(Borders::ALL)
-        .inner(query_chunks[2]);
 
     let results_inner = Block::default().borders(Borders::ALL).inner(results_area);
+    let pagination_inner = Block::default()
+        .borders(Borders::ALL)
+        .inner(pagination_area);
 
     let x = me.column;
     let y = me.row;
@@ -691,19 +865,20 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                 return Ok(());
             }
 
-            // Tabs: switch by approximate segment
-            if x >= tabs_area.x
-                && x < tabs_area.x + tabs_area.width
-                && y >= tabs_area.y
-                && y < tabs_area.y + tabs_area.height
-            {
-                if let Some(tab_count) = Some(app.result_tabs.len()).filter(|c| *c > 0) {
-                    let seg_w = max(1, tabs_area.width / tab_count as u16);
-                    let rel_x = x.saturating_sub(tabs_area.x);
-                    let idx = min((rel_x / seg_w) as usize, tab_count - 1);
-                    app.selected_result_tab_index = Some(idx);
+            if let Some(tabs_area) = tabs_area {
+                if x >= tabs_area.x
+                    && x < tabs_area.x + tabs_area.width
+                    && y >= tabs_area.y
+                    && y < tabs_area.y + tabs_area.height
+                {
+                    if let Some(tab_count) = Some(app.result_tabs.len()).filter(|c| *c > 0) {
+                        let seg_w = max(1, tabs_area.width / tab_count as u16);
+                        let rel_x = x.saturating_sub(tabs_area.x);
+                        let idx = min((rel_x / seg_w) as usize, tab_count - 1);
+                        app.selected_result_tab_index = Some(idx);
+                    }
+                    return Ok(());
                 }
-                return Ok(());
             }
 
             // Results table: select row/column approximately
@@ -766,6 +941,16 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                 }
                 return Ok(());
             }
+
+            // Pagination block: focus results pane
+            if x >= pagination_inner.x
+                && x < pagination_inner.x + pagination_inner.width
+                && y >= pagination_inner.y
+                && y < pagination_inner.y + pagination_inner.height
+            {
+                app.active_pane = Pane::Results;
+                return Ok(());
+            }
         }
         MouseEventKind::ScrollUp => {
             match app.active_pane {
@@ -783,6 +968,10 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
             if y >= results_inner.y && y < results_inner.y + results_inner.height {
                 app.active_pane = Pane::Results;
                 app.move_cursor_in_results(crate::ui::types::Direction::Up);
+                return Ok(());
+            }
+            if y >= pagination_inner.y && y < pagination_inner.y + pagination_inner.height {
+                app.active_pane = Pane::Results;
                 return Ok(());
             }
             if y >= conn_list_inner.y && y < conn_list_inner.y + conn_list_inner.height {
@@ -807,6 +996,10 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
             if y >= results_inner.y && y < results_inner.y + results_inner.height {
                 app.active_pane = Pane::Results;
                 app.move_cursor_in_results(crate::ui::types::Direction::Down);
+                return Ok(());
+            }
+            if y >= pagination_inner.y && y < pagination_inner.y + pagination_inner.height {
+                app.active_pane = Pane::Results;
                 return Ok(());
             }
             if y >= conn_list_inner.y && y < conn_list_inner.y + conn_list_inner.height {

@@ -72,6 +72,8 @@ pub struct ConnectionConfig {
     pub database: String,
     #[serde(default)]
     pub ssh_tunnel: Option<SSHConfig>,
+    #[serde(default)]
+    pub ssh_tunnel_name: Option<String>,
 }
 
 impl Default for ConnectionConfig {
@@ -85,6 +87,7 @@ impl Default for ConnectionConfig {
             password: None,
             database: String::new(),
             ssh_tunnel: None,
+            ssh_tunnel_name: None,
         }
     }
 }

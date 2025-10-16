@@ -256,16 +256,11 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
 fn render_main_panel(frame: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(LayoutDirection::Vertical)
-        .constraints([
-            Constraint::Length(10), // Query input height
-            Constraint::Length(3),  // Result Tabs height
-            Constraint::Min(1),     // Results area
-        ])
+        .constraints([Constraint::Length(8), Constraint::Min(1)])
         .split(area);
 
     render_query_input(frame, app, chunks[0]);
-    render_result_tabs(frame, app, chunks[1]);
-    render_results(frame, app, chunks[2]);
+    render_results_panel(frame, app, chunks[1]);
 }
 
 fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
@@ -274,7 +269,6 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
         .constraints([
             Constraint::Length(3), // WHERE clause
             Constraint::Length(3), // ORDER BY clause
-            Constraint::Length(3), // Page size and navigation
         ])
         .split(area);
 
@@ -285,9 +279,6 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
 
     // ORDER BY clause
     let mut order_by_block = Block::default().title("ORDER BY").borders(Borders::ALL);
-
-    // Pagination block
-    let mut pagination_block = Block::default().title("Pagination").borders(Borders::ALL);
 
     // If query input is active pane, highlight the current field
     if app.active_pane == Pane::QueryInput {
@@ -304,7 +295,7 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    // Render WHERE clause with cursor if it's the active field
+    // Render WHERE clause with cursor when inserting in WHERE
     let where_content = if let Some(state) = query_state {
         if app.active_pane == Pane::QueryInput
             && app.cursor_position.0 == 0
@@ -327,7 +318,7 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
         chunks[0],
     );
 
-    // Render ORDER BY clause with cursor if it's the active field
+    // Render ORDER BY clause with cursor when inserting in ORDER BY
     let order_by_content = if let Some(state) = query_state {
         if app.active_pane == Pane::QueryInput
             && app.cursor_position.0 == 1
@@ -350,29 +341,56 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
         chunks[1],
     );
 
-    // Render pagination info with keybindings hint
-    let pagination_info = if let Some(state) = query_state {
-        format!(
-            "Page: {}/{} | Size: {} | Total: {} | {}:First {}:Last {}:Next {}:Prev",
-            state.current_page,
-            state.total_pages.unwrap_or(1),
-            state.page_size,
-            state.total_records.unwrap_or(0),
-            app.config.keymap.first_page_key,
-            app.config.keymap.last_page_key,
-            app.config.keymap.next_page_key,
-            app.config.keymap.prev_page_key,
-        )
+    // Show terminal cursor as a block in NORMAL mode at the query cursor position
+    if app.active_pane == Pane::QueryInput && app.input_mode == InputMode::Normal {
+        // Compute inner areas to align cursor properly inside borders
+        let where_inner = Block::default().borders(Borders::ALL).inner(chunks[0]);
+        let order_by_inner = Block::default().borders(Borders::ALL).inner(chunks[1]);
+
+        match app.cursor_position.0 {
+            0 => {
+                let x = where_inner.x
+                    + app.cursor_position.1.min(app.get_current_field_length()) as u16;
+                let y = where_inner.y;
+                frame.set_cursor_position(ratatui::layout::Position { x, y });
+            }
+            1 => {
+                let x = order_by_inner.x
+                    + app.cursor_position.1.min(app.get_current_field_length()) as u16;
+                let y = order_by_inner.y;
+                frame.set_cursor_position(ratatui::layout::Position { x, y });
+            }
+            _ => {}
+        }
+    }
+}
+
+fn render_results_panel(frame: &mut Frame, app: &App, area: Rect) {
+    let has_tabs = !app.result_tabs.is_empty();
+    let constraints = if has_tabs {
+        vec![
+            Constraint::Length(3),
+            Constraint::Min(1),
+            Constraint::Length(3),
+        ]
     } else {
-        String::from("No active table")
+        vec![Constraint::Min(1), Constraint::Length(3)]
     };
 
-    frame.render_widget(
-        Paragraph::new(pagination_info)
-            .block(pagination_block)
-            .style(Style::default().fg(app.config.theme.text_color())),
-        chunks[2],
-    );
+    let chunks = Layout::default()
+        .direction(LayoutDirection::Vertical)
+        .constraints(constraints)
+        .split(area);
+
+    let mut index = 0;
+    if has_tabs {
+        render_result_tabs(frame, app, chunks[index]);
+        index += 1;
+    }
+
+    render_results(frame, app, chunks[index]);
+    index += 1;
+    render_pagination(frame, app, chunks[index]);
 }
 
 /// Renders the result tabs if there are any result sets.
@@ -558,6 +576,36 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
+fn render_pagination(frame: &mut Frame, app: &App, area: Rect) {
+    let mut block = Block::default().title("Pagination").borders(Borders::ALL);
+    if app.active_pane == Pane::Results {
+        block = block.border_style(Style::default().fg(app.config.theme.accent_color()));
+    }
+
+    let pagination_info = if let Some(state) = app.current_query_state() {
+        format!(
+            "Page: {}/{} | Size: {} | Total: {} | {}:First {}:Last {}:Prev {}:Next ",
+            state.current_page,
+            state.total_pages.unwrap_or(1),
+            state.page_size,
+            state.total_records.unwrap_or(0),
+            app.config.keymap.first_page_key,
+            app.config.keymap.last_page_key,
+            app.config.keymap.prev_page_key,
+            app.config.keymap.next_page_key,
+        )
+    } else {
+        String::from("No active table")
+    };
+
+    frame.render_widget(
+        Paragraph::new(pagination_info)
+            .block(block)
+            .style(Style::default().fg(app.config.theme.text_color())),
+        area,
+    );
+}
+
 /// Renders the command bar at the bottom of the UI.
 fn render_command_bar(frame: &mut Frame, app: &App, area: Rect) {
     let command = if app.input_mode == InputMode::Command {
@@ -574,4 +622,14 @@ fn render_command_bar(frame: &mut Frame, app: &App, area: Rect) {
         ), // Style with theme colors
         area,
     );
+
+    // Place the terminal cursor at the end of the command input when in Command mode
+    if app.input_mode == InputMode::Command {
+        let cursor_x = area.x + 1 + app.command_input.len() as u16; // account for ':'
+        let cursor_y = area.y;
+        frame.set_cursor_position(ratatui::layout::Position {
+            x: cursor_x,
+            y: cursor_y,
+        });
+    }
 }

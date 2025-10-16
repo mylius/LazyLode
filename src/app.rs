@@ -30,6 +30,7 @@ pub struct ConnectionForm {
     pub ssh_username: String,
     pub ssh_password: String,
     pub ssh_key_path: String,
+    pub ssh_tunnel_name: Option<String>,
     pub current_field: usize,
     pub editing_index: Option<usize>,
 }
@@ -174,6 +175,8 @@ pub struct App {
     pub connections: HashMap<String, Box<dyn DatabaseConnection>>,
     pub command_buffer: CommandBuffer,
     pub clipboard: String,
+    pub last_key_was_d: bool,
+    pub awaiting_replace: bool,
 }
 
 impl App {
@@ -208,6 +211,8 @@ impl App {
             connection_manager: ConnectionManager::new(),
             command_buffer: CommandBuffer::new(),
             clipboard: String::new(),
+            last_key_was_d: false,
+            awaiting_replace: false,
         };
 
         app.load_connections();
@@ -362,6 +367,7 @@ impl App {
             password: Some(self.connection_form.password.clone()),
             database: self.connection_form.database.clone(),
             ssh_tunnel: None,
+            ssh_tunnel_name: self.connection_form.ssh_tunnel_name.clone(),
         };
 
         self.saved_connections.push(new_connection.clone());
@@ -476,6 +482,19 @@ impl App {
         self.command_buffer.clear();
     }
 
+    pub fn focus_where_input(&mut self) {
+        self.active_pane = Pane::QueryInput;
+        self.input_mode = InputMode::Insert;
+        self.cursor_position.0 = 0;
+        let len = self
+            .current_query_state()
+            .map(|state| state.where_clause.len())
+            .unwrap_or(0);
+        self.cursor_position.1 = len;
+        self.last_key_was_d = false;
+        self.awaiting_replace = false;
+    }
+
     /// Handles tree-related actions such as expand and collapse.
     pub async fn handle_tree_action(&mut self, action: TreeAction) -> Result<()> {
         if self.active_pane == Pane::Connections {
@@ -544,11 +563,22 @@ impl App {
                 ))?;
 
                 // Try to connect
-                match self
-                    .connection_manager
-                    .connect(connection.connection_config.clone())
-                    .await
-                {
+                let mut cfg = connection.connection_config.clone();
+                if cfg.ssh_tunnel.is_none() {
+                    if let Some(name) = &cfg.ssh_tunnel_name {
+                        if let Some(tunnel) = self
+                            .config
+                            .ssh_tunnels
+                            .iter()
+                            .find(|t| &t.name == name)
+                            .cloned()
+                        {
+                            cfg.ssh_tunnel = Some(tunnel.config);
+                        }
+                    }
+                }
+
+                match self.connection_manager.connect(cfg).await {
                     Ok(_) => {
                         if let Some(db_conn) = self
                             .connection_manager
@@ -721,6 +751,7 @@ impl App {
                 password: Some(self.connection_form.password.clone()),
                 database: self.connection_form.database.clone(),
                 ssh_tunnel: None,
+                ssh_tunnel_name: self.connection_form.ssh_tunnel_name.clone(),
             };
 
             self.saved_connections[index] = updated_connection.clone();
@@ -919,6 +950,65 @@ impl App {
                     _ => {}
                 }
             }
+        }
+    }
+
+    /// Delete character at cursor position in current query field
+    pub fn delete_char_at_cursor(&mut self) {
+        let field_idx = self.cursor_position.0;
+        let cursor_pos = self.cursor_position.1;
+
+        if let Some(state) = self.current_query_state_mut() {
+            match field_idx {
+                0 => {
+                    if cursor_pos < state.where_clause.len() {
+                        state.where_clause.remove(cursor_pos);
+                    }
+                }
+                1 => {
+                    if cursor_pos < state.order_by_clause.len() {
+                        state.order_by_clause.remove(cursor_pos);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Replace character at cursor position in current query field
+    pub fn replace_char_at_cursor(&mut self, c: char) {
+        let field_idx = self.cursor_position.0;
+        let cursor_pos = self.cursor_position.1;
+
+        if let Some(state) = self.current_query_state_mut() {
+            match field_idx {
+                0 => {
+                    if cursor_pos < state.where_clause.len() {
+                        state.where_clause.remove(cursor_pos);
+                        state.where_clause.insert(cursor_pos, c);
+                    }
+                }
+                1 => {
+                    if cursor_pos < state.order_by_clause.len() {
+                        state.order_by_clause.remove(cursor_pos);
+                        state.order_by_clause.insert(cursor_pos, c);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Clear the current query field (acts like deleting the entire line)
+    pub fn clear_current_field(&mut self) {
+        let field_idx = self.cursor_position.0;
+        if let Some(state) = self.current_query_state_mut() {
+            match field_idx {
+                0 => state.where_clause.clear(),
+                1 => state.order_by_clause.clear(),
+                _ => {}
+            }
+            self.cursor_position.1 = 0;
         }
     }
 
