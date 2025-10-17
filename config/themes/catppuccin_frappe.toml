@@ -26,5 +26,5 @@ header_bg = [49, 50, 68]
 header_fg = [203, 166, 247]
 
 # Row colors
-row_even_bg = [30, 30, 46]
-row_odd_bg = [49, 50, 68]
+row_even_bg = [48, 52, 70]
+row_odd_bg = [65, 69, 89]

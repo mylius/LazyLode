@@ -22,9 +22,9 @@ yellow = [181, 137, 0]
 green = [40, 167, 69]
 
 # Header colors
-header_bg = [171, 178, 191]
+header_bg = [240, 240, 240]
 header_fg = [166, 38, 164]
 
 # Row colors
-row_even_bg = [171, 178, 191]
-row_odd_bg = [230, 233, 239]
+row_even_bg = [245, 245, 245]
+row_odd_bg = [240, 240, 240]

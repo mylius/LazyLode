@@ -3,8 +3,8 @@ transparent_backgrounds = false
 # Background colors
 base = [40, 42, 54]
 surface0 = [68, 71, 90]
-surface1 = [98, 114, 164]
-surface2 = [139, 233, 253]
+surface1 = [68, 71, 90]
+surface2 = [80, 83, 102]
 
 # Content colors
 text = [248, 248, 242]
@@ -26,5 +26,5 @@ header_bg = [40, 42, 54]
 header_fg = [189, 147, 249]
 
 # Row colors
-row_even_bg = [30, 30, 46]
-row_odd_bg = [40, 42, 54]
+row_even_bg = [68, 71, 90]
+row_odd_bg = [80, 83, 102]

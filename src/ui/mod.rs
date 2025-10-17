@@ -270,9 +270,15 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_main_panel(frame: &mut Frame, app: &App, area: Rect) {
+    // Set background color for the main panel area
+    frame.render_widget(
+        Block::default().style(Style::default().bg(app.config.theme.base_color())),
+        area,
+    );
+
     let chunks = Layout::default()
         .direction(LayoutDirection::Vertical)
-        .constraints([Constraint::Length(8), Constraint::Min(1)])
+        .constraints([Constraint::Length(6), Constraint::Min(1)])
         .split(area);
 
     render_query_input(frame, app, chunks[0]);
@@ -297,8 +303,9 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
         .title_style(
             Style::default()
                 .fg(app.config.theme.header_fg_color())
-                .bg(app.config.theme.header_bg_color())
-        );
+                .bg(app.config.theme.header_bg_color()),
+        )
+        .style(Style::default().bg(app.config.theme.surface0_color()));
 
     // ORDER BY clause
     let mut order_by_block = Block::default()
@@ -307,8 +314,9 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
         .title_style(
             Style::default()
                 .fg(app.config.theme.header_fg_color())
-                .bg(app.config.theme.header_bg_color())
-        );
+                .bg(app.config.theme.header_bg_color()),
+        )
+        .style(Style::default().bg(app.config.theme.surface0_color()));
 
     // If query input is active pane, highlight the current field
     if app.active_pane == Pane::QueryInput {
@@ -341,10 +349,21 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
         String::new()
     };
 
+    let where_style = if app.active_pane == Pane::QueryInput
+        && app.cursor_position.0 == 0
+        && app.input_mode == InputMode::Insert
+    {
+        Style::default()
+            .fg(app.config.theme.text_color())
+            .bg(app.config.theme.cursor_color())
+    } else {
+        Style::default().fg(app.config.theme.text_color())
+    };
+
     frame.render_widget(
         Paragraph::new(where_content)
             .block(where_block)
-            .style(Style::default().fg(app.config.theme.text_color())),
+            .style(where_style),
         chunks[0],
     );
 
@@ -364,10 +383,21 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
         String::new()
     };
 
+    let order_by_style = if app.active_pane == Pane::QueryInput
+        && app.cursor_position.0 == 1
+        && app.input_mode == InputMode::Insert
+    {
+        Style::default()
+            .fg(app.config.theme.text_color())
+            .bg(app.config.theme.cursor_color())
+    } else {
+        Style::default().fg(app.config.theme.text_color())
+    };
+
     frame.render_widget(
         Paragraph::new(order_by_content)
             .block(order_by_block)
-            .style(Style::default().fg(app.config.theme.text_color())),
+            .style(order_by_style),
         chunks[1],
     );
 
@@ -461,7 +491,7 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
         .title_style(
             Style::default()
                 .fg(app.config.theme.header_fg_color())
-                .bg(app.config.theme.header_bg_color())
+                .bg(app.config.theme.header_bg_color()),
         );
     if app.active_pane == Pane::Results {
         block = block.border_style(Style::default().fg(app.config.theme.accent_color()));
@@ -560,8 +590,8 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
             .take(visible_capacity)
             .map(|(row_idx, row)| {
                 let is_marked = query_state.rows_marked_for_deletion.contains(&row_idx);
-                let is_selected = app.active_pane == Pane::Results
-                    && row_idx == app.cursor_position.1;
+                let is_selected =
+                    app.active_pane == Pane::Results && row_idx == app.cursor_position.1;
 
                 let base_bg = if is_marked {
                     Color::Rgb(139, 0, 0) // Dark red for marked rows
@@ -578,9 +608,11 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
                     row_idx + 1,
                     width = line_num_width as usize
                 ))
-                .style(Style::default()
-                    .fg(app.config.theme.text_color())
-                    .bg(base_bg))];
+                .style(
+                    Style::default()
+                        .fg(app.config.theme.text_color())
+                        .bg(base_bg),
+                )];
 
                 // Add the data cells
                 row_cells.extend(row.iter().enumerate().map(|(col_idx, cell)| {
@@ -625,7 +657,7 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
                 .title_style(
                     Style::default()
                         .fg(app.config.theme.header_fg_color())
-                        .bg(app.config.theme.header_bg_color())
+                        .bg(app.config.theme.header_bg_color()),
                 )
                 .style(
                     Style::default()
@@ -644,8 +676,9 @@ fn render_pagination(frame: &mut Frame, app: &App, area: Rect) {
         .title_style(
             Style::default()
                 .fg(app.config.theme.header_fg_color())
-                .bg(app.config.theme.header_bg_color())
-        );
+                .bg(app.config.theme.header_bg_color()),
+        )
+        .style(Style::default().bg(app.config.theme.surface0_color()));
     if app.active_pane == Pane::Results {
         block = block.border_style(Style::default().fg(app.config.theme.accent_color()));
     }
@@ -687,7 +720,7 @@ fn render_command_bar(frame: &mut Frame, app: &App, area: Rect) {
             .split(area);
 
         let command = format!(":{}", app.command_input);
-        
+
         // Render command input
         frame.render_widget(
             Paragraph::new(command).style(
@@ -700,7 +733,8 @@ fn render_command_bar(frame: &mut Frame, app: &App, area: Rect) {
 
         // Render suggestions
         if !app.command_suggestions.is_empty() {
-            let suggestion_items: Vec<ListItem> = app.command_suggestions
+            let suggestion_items: Vec<ListItem> = app
+                .command_suggestions
                 .iter()
                 .enumerate()
                 .map(|(idx, suggestion)| {

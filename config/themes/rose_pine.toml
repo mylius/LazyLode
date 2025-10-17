@@ -20,3 +20,11 @@ red = [235, 111, 146]
 peach = [245, 169, 127]
 yellow = [234, 154, 109]
 green = [156, 207, 216]
+
+# Header colors
+header_bg = [25, 23, 36]
+header_fg = [156, 207, 216]
+
+# Row colors
+row_even_bg = [31, 29, 43]
+row_odd_bg = [38, 35, 52]

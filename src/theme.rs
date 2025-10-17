@@ -122,4 +122,8 @@ impl Theme {
     pub fn row_odd_bg_color(&self) -> Color {
         self.color(self.row_odd_bg, self.surface1_color())
     }
+
+    pub fn cursor_color(&self) -> Color {
+        self.color(self.mauve, Color::Cyan)
+    }
 }
