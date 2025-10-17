@@ -19,6 +19,18 @@ default_editing_mode = "Vim"  # or "Cursor"
 "s" = "FocusSchemaExplorer"
 ":" = "FocusCommandLine"
 
+# Directional pane navigation
+"Shift+h" = "FocusPaneLeft"
+"Shift+l" = "FocusPaneRight"
+"Shift+k" = "FocusPaneUp"
+"Shift+j" = "FocusPaneDown"
+
+# Alternative pane navigation with Ctrl
+"Ctrl+c" = "FocusConnections"
+"Ctrl+q" = "FocusQueryInput"
+"Ctrl+r" = "FocusResults"
+"Ctrl+s" = "FocusSchemaExplorer"
+
 # Box navigation
 "t" = "FocusTextInput"
 "d" = "FocusDataTable"

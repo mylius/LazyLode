@@ -20,6 +20,24 @@ default_editing_mode = "Vim"
 "Ctrl+4" = "FocusSchemaExplorer"
 "Ctrl+Shift+:" = "FocusCommandLine"
 
+# Directional pane navigation
+"Shift+h" = "FocusPaneLeft"
+"Shift+l" = "FocusPaneRight"
+"Shift+k" = "FocusPaneUp"
+"Shift+j" = "FocusPaneDown"
+
+# Alternative directional navigation with Ctrl+Arrow
+"Ctrl+Left" = "FocusPaneLeft"
+"Ctrl+Right" = "FocusPaneRight"
+"Ctrl+Up" = "FocusPaneUp"
+"Ctrl+Down" = "FocusPaneDown"
+
+# Alternative directional navigation with Alt+Arrow
+"Alt+Left" = "FocusPaneLeft"
+"Alt+Right" = "FocusPaneRight"
+"Alt+Up" = "FocusPaneUp"
+"Alt+Down" = "FocusPaneDown"
+
 # Alternative pane navigation with function keys
 "F1" = "FocusConnections"
 "F2" = "FocusQueryInput"

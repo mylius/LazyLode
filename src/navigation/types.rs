@@ -153,6 +153,18 @@ impl Default for KeyMapping {
         mapping.add_mapping(KeyCombination::simple(KeyCode::Char('s')), NavigationAction::FocusSchemaExplorer);
         mapping.add_mapping(KeyCombination::simple(KeyCode::Char(':')), NavigationAction::FocusCommandLine);
         
+        // Directional pane navigation
+        mapping.add_mapping(KeyCombination::with_shift(KeyCode::Char('h')), NavigationAction::FocusPaneLeft);
+        mapping.add_mapping(KeyCombination::with_shift(KeyCode::Char('l')), NavigationAction::FocusPaneRight);
+        mapping.add_mapping(KeyCombination::with_shift(KeyCode::Char('k')), NavigationAction::FocusPaneUp);
+        mapping.add_mapping(KeyCombination::with_shift(KeyCode::Char('j')), NavigationAction::FocusPaneDown);
+        
+        // Alternative pane navigation with Ctrl
+        mapping.add_mapping(KeyCombination::with_ctrl(KeyCode::Char('c')), NavigationAction::FocusConnections);
+        mapping.add_mapping(KeyCombination::with_ctrl(KeyCode::Char('q')), NavigationAction::FocusQueryInput);
+        mapping.add_mapping(KeyCombination::with_ctrl(KeyCode::Char('r')), NavigationAction::FocusResults);
+        mapping.add_mapping(KeyCombination::with_ctrl(KeyCode::Char('s')), NavigationAction::FocusSchemaExplorer);
+        
         // Box navigation
         mapping.add_mapping(KeyCombination::simple(KeyCode::Char('t')), NavigationAction::FocusTextInput);
         mapping.add_mapping(KeyCombination::simple(KeyCode::Char('d')), NavigationAction::FocusDataTable);
@@ -294,6 +306,12 @@ pub enum NavigationAction {
     FocusCommandLine,
     NextPane,
     PreviousPane,
+    
+    // Directional pane navigation
+    FocusPaneLeft,
+    FocusPaneRight,
+    FocusPaneUp,
+    FocusPaneDown,
     
     // Box navigation
     FocusTextInput,

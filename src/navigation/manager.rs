@@ -73,6 +73,20 @@ impl NavigationManager {
                 self.previous_pane()
             }
             
+            // Directional pane navigation
+            NavigationAction::FocusPaneLeft => {
+                self.focus_pane_direction(Direction::Left)
+            }
+            NavigationAction::FocusPaneRight => {
+                self.focus_pane_direction(Direction::Right)
+            }
+            NavigationAction::FocusPaneUp => {
+                self.focus_pane_direction(Direction::Up)
+            }
+            NavigationAction::FocusPaneDown => {
+                self.focus_pane_direction(Direction::Down)
+            }
+            
             // Box navigation
             NavigationAction::FocusTextInput => {
                 self.focus_box(Box::TextInput)
@@ -358,6 +372,40 @@ impl NavigationManager {
         } else {
             false
         }
+    }
+
+    /// Focus pane in a specific direction
+    fn focus_pane_direction(&mut self, direction: Direction) -> bool {
+        let current_pane = self.state.active_pane;
+        let pane_order = &self.pane_order;
+        
+        // Find current pane index
+        let current_index = match pane_order.iter().position(|&p| p == current_pane) {
+            Some(idx) => idx,
+            None => return false,
+        };
+        
+        // Calculate new pane index based on direction
+        let new_index = match direction {
+            Direction::Left => {
+                if current_index > 0 { current_index - 1 } else { pane_order.len() - 1 }
+            }
+            Direction::Right => {
+                if current_index < pane_order.len() - 1 { current_index + 1 } else { 0 }
+            }
+            Direction::Up => {
+                // For now, treat Up as previous pane
+                if current_index > 0 { current_index - 1 } else { pane_order.len() - 1 }
+            }
+            Direction::Down => {
+                // For now, treat Down as next pane
+                if current_index < pane_order.len() - 1 { current_index + 1 } else { 0 }
+            }
+        };
+        
+        // Focus the new pane
+        let new_pane = pane_order[new_index];
+        self.focus_pane(new_pane)
     }
 
     /// Get the current mode indicator text

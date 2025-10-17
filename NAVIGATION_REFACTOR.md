@@ -170,6 +170,18 @@ The system comes with sensible defaults, but all key mappings are configurable:
 - `s`: Focus SchemaExplorer pane
 - `:`: Focus CommandLine pane
 
+#### Directional Pane Navigation
+- `Shift+h`: Focus pane to the left
+- `Shift+l`: Focus pane to the right
+- `Shift+k`: Focus pane up
+- `Shift+j`: Focus pane down
+
+#### Alternative Pane Navigation
+- `Ctrl+c`: Focus Connections pane
+- `Ctrl+q`: Focus QueryInput pane
+- `Ctrl+r`: Focus Results pane
+- `Ctrl+s`: Focus SchemaExplorer pane
+
 #### Box Navigation
 - `t`: Focus TextInput box
 - `d`: Focus DataTable box
