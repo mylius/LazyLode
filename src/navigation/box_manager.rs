@@ -138,7 +138,7 @@ impl BoxManager {
         }
     }
 
-    fn handle_cursor_mode_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> bool {
+    fn handle_cursor_mode_key(&mut self, key: KeyCode, _modifiers: KeyModifiers) -> bool {
         match key {
             KeyCode::Char(c) => {
                 self.vim_editor.insert_char_at_cursor(c);
@@ -172,7 +172,7 @@ impl BoxManager {
         }
     }
 
-    fn handle_table_view_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> bool {
+    fn handle_table_view_key(&mut self, key: KeyCode, _modifiers: KeyModifiers) -> bool {
         match key {
             KeyCode::Char('e') | KeyCode::Enter => {
                 self.view_mode = false;
@@ -198,13 +198,13 @@ impl BoxManager {
         }
     }
 
-    fn handle_table_edit_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> bool {
+    fn handle_table_edit_key(&mut self, key: KeyCode, _modifiers: KeyModifiers) -> bool {
         match key {
             KeyCode::Esc => {
                 self.view_mode = true;
                 true
             }
-            KeyCode::Char(c) => {
+            KeyCode::Char(_c) => {
                 // Edit cell content
                 true
             }
@@ -212,7 +212,7 @@ impl BoxManager {
         }
     }
 
-    fn handle_navigation_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> bool {
+    fn handle_navigation_key(&mut self, key: KeyCode, _modifiers: KeyModifiers) -> bool {
         match key {
             KeyCode::Char('h') | KeyCode::Left => {
                 // Navigate left
@@ -238,7 +238,7 @@ impl BoxManager {
         }
     }
 
-    fn handle_modal_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> bool {
+    fn handle_modal_key(&mut self, key: KeyCode, _modifiers: KeyModifiers) -> bool {
         match key {
             KeyCode::Esc => {
                 // Close modal

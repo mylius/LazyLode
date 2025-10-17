@@ -112,7 +112,7 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     // Render header paragraph
-    let header = Line::from(format!("Connections (press 'a' to add){}", nav_info));
+    let header = Line::from(format!("Connections (press 'a' to add){}", _nav_info));
     let mut block = Block::default().borders(Borders::ALL).style(
         Style::default()
             .fg(app.config.theme.text_color())
@@ -193,7 +193,7 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
             ))
             .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
 
-            for (db_idx, database) in connection.databases.iter().enumerate() {
+            for (_db_idx, database) in connection.databases.iter().enumerate() {
                 let db_expanded = if database.is_expanded { "▼" } else { "▶" };
 
                 let db_style = if app.highlight_selected_item(visible_index) {
@@ -214,7 +214,7 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
 
                 // Render schemas if database is expanded
                 if database.is_expanded {
-                    for (schema_idx, schema) in database.schemas.iter().enumerate() {
+                    for (_schema_idx, schema) in database.schemas.iter().enumerate() {
                         let schema_expanded = if schema.is_expanded { "▼" } else { "▶" }; // Expansion symbol for schema
                         let schema_style = if app.highlight_selected_item(visible_index) {
                             // Style for schema item, highlight if selected

@@ -406,7 +406,7 @@ impl VimEditor {
     }
 
     fn insert_newline_above(&mut self) {
-        let (row, col) = self.cursor_position;
+        let (row, _col) = self.cursor_position;
         let mut lines: Vec<String> = self.content.lines().map(|s| s.to_string()).collect();
         
         lines.insert(row, String::new());

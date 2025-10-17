@@ -343,7 +343,7 @@ pub enum NavigationAction {
 }
 
 /// Configuration for navigation hotkeys
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct NavigationConfig {
     /// Key mapping configuration
     pub key_mapping: KeyMapping,

@@ -149,7 +149,7 @@ async fn run_app_tick<B: ratatui::backend::Backend>(
         Event::Key(key) => {
             // Use the new navigation input handler
             if let Err(e) = NavigationInputHandler::handle_key(key.code, key.modifiers, app).await {
-                logging::error(&format!("Error handling key input: {}", e))?;
+                logging::error(&format!("Error handling key input: {}", e));
             }
 
             if app.should_quit {
@@ -519,13 +519,6 @@ async fn handle_query_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<
                 app.active_pane = pane;
                 if pane == Pane::QueryInput {
                     // Ensure a valid cursor position when focusing query pane
-                    let len = app.get_current_field_length();
-                    app.cursor_position.1 = app.cursor_position.1.min(len);
-                }
-            }
-            Action::Navigation(NavigationAction::FocusPane(pane)) => {
-                app.active_pane = pane;
-                if pane == Pane::QueryInput {
                     let len = app.get_current_field_length();
                     app.cursor_position.1 = app.cursor_position.1.min(len);
                 }

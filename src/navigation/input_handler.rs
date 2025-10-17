@@ -204,14 +204,14 @@ impl NavigationInputHandler {
         Ok(())
     }
 
-    async fn handle_connections_input(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
+    async fn handle_connections_input(key: KeyCode, _modifiers: KeyModifiers, app: &mut App) -> Result<()> {
         match app.input_mode {
-            crate::app::InputMode::Normal => Self::handle_connections_input_normal_mode(key, app).await,
+            crate::app::InputMode::Normal => Self::handle_connections_input_normal_mode(key, modifiers, app).await,
             _ => Ok(()),
         }
     }
 
-    async fn handle_connections_input_normal_mode(key: KeyCode, app: &mut App) -> Result<()> {
+    async fn handle_connections_input_normal_mode(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
         if let Some(action) = app.config.keymap.get_action(key, KeyModifiers::empty()) {
             match action {
                 Action::Navigation(nav_action) => match nav_action {
@@ -319,15 +319,15 @@ impl NavigationInputHandler {
         Ok(())
     }
 
-    async fn handle_query_input(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
+    async fn handle_query_input(key: KeyCode, _modifiers: KeyModifiers, app: &mut App) -> Result<()> {
         match app.input_mode {
-            crate::app::InputMode::Normal => Self::handle_query_input_normal_mode(key, app).await,
-            crate::app::InputMode::Insert => Self::handle_query_input_insert_mode(key, app).await,
+            crate::app::InputMode::Normal => Self::handle_query_input_normal_mode(key, modifiers, app).await,
+            crate::app::InputMode::Insert => Self::handle_query_input_insert_mode(key, modifiers, app).await,
             _ => Ok(()),
         }
     }
 
-    async fn handle_query_input_normal_mode(key: KeyCode, app: &mut App) -> Result<()> {
+    async fn handle_query_input_normal_mode(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
         // First handle query-pane Vim-like keys explicitly
         match key {
             KeyCode::Char('i') if modifiers.is_empty() => {
@@ -418,7 +418,7 @@ impl NavigationInputHandler {
         Ok(())
     }
 
-    async fn handle_query_input_insert_mode(key: KeyCode, app: &mut App) -> Result<()> {
+    async fn handle_query_input_insert_mode(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
         match key {
             KeyCode::Esc => {
                 app.input_mode = crate::app::InputMode::Normal;
@@ -440,14 +440,14 @@ impl NavigationInputHandler {
         Ok(())
     }
 
-    async fn handle_results_input(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
+    async fn handle_results_input(key: KeyCode, _modifiers: KeyModifiers, app: &mut App) -> Result<()> {
         match app.input_mode {
-            crate::app::InputMode::Normal => Self::handle_results_input_normal_mode(key, app).await,
+            crate::app::InputMode::Normal => Self::handle_results_input_normal_mode(key, modifiers, app).await,
             _ => Ok(()),
         }
     }
 
-    async fn handle_results_input_normal_mode(key: KeyCode, app: &mut App) -> Result<()> {
+    async fn handle_results_input_normal_mode(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
         if app.show_deletion_modal {
             match key {
                 KeyCode::Esc => {
