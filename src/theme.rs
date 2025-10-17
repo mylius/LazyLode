@@ -35,10 +35,6 @@ pub struct Theme {
     // Row colors
     pub row_even_bg: Option<[u8; 3]>,
     pub row_odd_bg: Option<[u8; 3]>,
-
-    // Column colors
-    pub col_even_bg: Option<[u8; 3]>,
-    pub col_odd_bg: Option<[u8; 3]>,
 }
 
 impl Theme {
@@ -64,8 +60,6 @@ impl Theme {
             header_fg: None,
             row_even_bg: None,
             row_odd_bg: None,
-            col_even_bg: None,
-            col_odd_bg: None,
         }
     }
 
@@ -122,18 +116,10 @@ impl Theme {
     }
 
     pub fn row_even_bg_color(&self) -> Color {
-        self.bg_color(self.row_even_bg)
+        self.color(self.row_even_bg, self.surface0_color())
     }
 
     pub fn row_odd_bg_color(&self) -> Color {
-        self.bg_color(self.row_odd_bg)
-    }
-
-    pub fn col_even_bg_color(&self) -> Color {
-        self.bg_color(self.col_even_bg)
-    }
-
-    pub fn col_odd_bg_color(&self) -> Color {
-        self.bg_color(self.col_odd_bg)
+        self.color(self.row_odd_bg, self.surface1_color())
     }
 }
