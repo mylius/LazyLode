@@ -1,0 +1,22 @@
+transparent_backgrounds = false
+
+# Background colors
+base = [40, 46, 50]
+surface0 = [47, 54, 58]
+surface1 = [54, 62, 66]
+surface2 = [61, 70, 74]
+
+# Content colors
+text = [211, 208, 200]
+subtext0 = [183, 179, 168]
+subtext1 = [155, 150, 136]
+
+# Primary colors
+blue = [126, 200, 255]
+lavender = [199, 146, 234]
+sapphire = [95, 196, 191]
+mauve = [199, 146, 234]
+red = [255, 129, 130]
+peach = [255, 184, 108]
+yellow = [255, 200, 87]
+green = [163, 190, 140]

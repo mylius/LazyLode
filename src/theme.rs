@@ -27,6 +27,14 @@ pub struct Theme {
     pub peach: Option<[u8; 3]>,
     pub yellow: Option<[u8; 3]>,
     pub green: Option<[u8; 3]>,
+
+    // Header colors
+    pub header_bg: Option<[u8; 3]>,
+    pub header_fg: Option<[u8; 3]>,
+
+    // Row colors
+    pub row_even_bg: Option<[u8; 3]>,
+    pub row_odd_bg: Option<[u8; 3]>,
 }
 
 impl Theme {
@@ -48,6 +56,10 @@ impl Theme {
             peach: None,
             yellow: None,
             green: None,
+            header_bg: None,
+            header_fg: None,
+            row_even_bg: None,
+            row_odd_bg: None,
         }
     }
 
@@ -93,5 +105,21 @@ impl Theme {
 
     pub fn accent_color(&self) -> Color {
         self.color(self.mauve, Color::Cyan)
+    }
+
+    pub fn header_bg_color(&self) -> Color {
+        self.bg_color(self.header_bg)
+    }
+
+    pub fn header_fg_color(&self) -> Color {
+        self.color(self.header_fg, Color::White)
+    }
+
+    pub fn row_even_bg_color(&self) -> Color {
+        self.color(self.row_even_bg, self.surface0_color())
+    }
+
+    pub fn row_odd_bg_color(&self) -> Color {
+        self.color(self.row_odd_bg, self.surface1_color())
     }
 }

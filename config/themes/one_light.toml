@@ -1,0 +1,30 @@
+transparent_backgrounds = false
+
+# Background colors
+base = [250, 250, 250]
+surface0 = [245, 245, 245]
+surface1 = [240, 240, 240]
+surface2 = [235, 235, 235]
+
+# Content colors
+text = [56, 58, 66]
+subtext0 = [76, 78, 86]
+subtext1 = [96, 98, 106]
+
+# Primary colors
+blue = [65, 131, 196]
+lavender = [166, 38, 164]
+sapphire = [86, 182, 194]
+mauve = [166, 38, 164]
+red = [220, 50, 47]
+peach = [203, 75, 22]
+yellow = [181, 137, 0]
+green = [40, 167, 69]
+
+# Header colors
+header_bg = [171, 178, 191]
+header_fg = [166, 38, 164]
+
+# Row colors
+row_even_bg = [171, 178, 191]
+row_odd_bg = [230, 233, 239]

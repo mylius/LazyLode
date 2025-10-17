@@ -162,15 +162,22 @@ async fn run_app_tick<B: ratatui::backend::Backend>(
                     handle_connection_modal_input(key, app).await?;
                 }
             } else {
-                match app.active_pane {
-                    Pane::Connections => {
-                        handle_connections_input(key, app).await?;
+                match app.input_mode {
+                    InputMode::Command => {
+                        handle_command_input(key, app).await?;
                     }
-                    Pane::QueryInput => {
-                        handle_query_input(key, app).await?;
-                    }
-                    Pane::Results => {
-                        handle_results_input(key, app).await?;
+                    _ => {
+                        match app.active_pane {
+                            Pane::Connections => {
+                                handle_connections_input(key, app).await?;
+                            }
+                            Pane::QueryInput => {
+                                handle_query_input(key, app).await?;
+                            }
+                            Pane::Results => {
+                                handle_results_input(key, app).await?;
+                            }
+                        }
                     }
                 }
             }
@@ -439,6 +446,10 @@ async fn handle_connections_input_normal_mode(
                 // Handle delete action
                 app.delete_connection();
             }
+            Action::EnterCommand => {
+                app.input_mode = InputMode::Command;
+                app.active_block = ActiveBlock::CommandInput;
+            }
             _ => {}
         }
     } else {
@@ -546,15 +557,12 @@ async fn handle_query_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<
                     app.cursor_position.1 = app.cursor_position.1.min(len);
                 }
             }
-            Action::Navigation(NavigationAction::FocusPane(pane)) => {
-                app.active_pane = pane;
-                if pane == Pane::QueryInput {
-                    let len = app.get_current_field_length();
-                    app.cursor_position.1 = app.cursor_position.1.min(len);
-                }
-            }
             Action::Navigation(nav_action) => {
                 app.handle_navigation(nav_action);
+            }
+            Action::EnterCommand => {
+                app.input_mode = InputMode::Command;
+                app.active_block = ActiveBlock::CommandInput;
             }
             _ => {}
         }
@@ -722,8 +730,87 @@ async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Resul
                     app.status_message = Some("Deletion cancelled".to_string());
                 }
             }
+            Action::EnterCommand => {
+                app.input_mode = InputMode::Command;
+                app.active_block = ActiveBlock::CommandInput;
+            }
             _ => {}
         }
+    }
+    Ok(())
+}
+
+async fn handle_command_input(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Esc => {
+            app.input_mode = InputMode::Normal;
+            app.active_block = ActiveBlock::Connections;
+            app.command_input.clear();
+            app.command_suggestions.clear();
+            app.selected_suggestion = None;
+            // Restore the saved theme if we were previewing
+            let _ = app.restore_theme();
+        }
+        KeyCode::Enter => {
+            let command = app.command_input.clone();
+            app.command_input.clear();
+            app.input_mode = InputMode::Normal;
+            app.active_block = ActiveBlock::Connections;
+            app.command_suggestions.clear();
+            app.selected_suggestion = None;
+            
+            // Process the command
+            if command == "themes" {
+                if let Err(e) = app.list_themes() {
+                    let _ = logging::error(&format!("Error listing themes: {}", e));
+                }
+            } else if command.starts_with("theme ") {
+                let theme_name = command.strip_prefix("theme ").unwrap_or("");
+                if !theme_name.is_empty() {
+                    if let Err(e) = app.switch_theme(theme_name) {
+                        let _ = logging::error(&format!("Error switching theme: {}", e));
+                    }
+                }
+            } else {
+                app.status_message = Some(format!("Unknown command: {}", command));
+            }
+        }
+        KeyCode::Up => {
+            app.select_previous_suggestion();
+            // Preview theme if suggestion is a theme command
+            if let Some(suggestion) = app.get_selected_suggestion().cloned() {
+                if suggestion.starts_with("theme ") {
+                    let theme_name = suggestion.strip_prefix("theme ").unwrap_or("");
+                    if !theme_name.is_empty() {
+                        let _ = app.preview_theme(theme_name);
+                    }
+                }
+            }
+        }
+        KeyCode::Down => {
+            app.select_next_suggestion();
+            // Preview theme if suggestion is a theme command
+            if let Some(suggestion) = app.get_selected_suggestion().cloned() {
+                if suggestion.starts_with("theme ") {
+                    let theme_name = suggestion.strip_prefix("theme ").unwrap_or("");
+                    if !theme_name.is_empty() {
+                        let _ = app.preview_theme(theme_name);
+                    }
+                }
+            }
+        }
+        KeyCode::Tab => {
+            app.apply_selected_suggestion();
+        }
+        KeyCode::Backspace => {
+            app.command_input.pop();
+            app.update_command_suggestions();
+        }
+        KeyCode::Char(c) => {
+            app.command_input.push(c);
+            app.update_command_suggestions();
+        }
+        _ => {}
     }
     Ok(())
 }
