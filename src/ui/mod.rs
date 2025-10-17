@@ -56,11 +56,27 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         InputMode::Command => "COMMAND",
     };
 
-    // Create status text, including current mode and status message
+    // Create status text, including current mode, theme, and status message
+    let theme_info = if app.input_mode == InputMode::Command && app.selected_suggestion.is_some() {
+        if let Some(suggestion) = app.get_selected_suggestion() {
+            if suggestion.starts_with("theme ") {
+                let theme_name = suggestion.strip_prefix("theme ").unwrap_or("");
+                format!(" | Theme: {} (preview)", theme_name)
+            } else {
+                format!(" | Theme: {}", app.get_current_theme_name())
+            }
+        } else {
+            format!(" | Theme: {}", app.get_current_theme_name())
+        }
+    } else {
+        format!(" | Theme: {}", app.get_current_theme_name())
+    };
+
     let status = Line::from(format!(
-        "{} | {}",
+        "{} | {}{}",
         mode,
-        app.status_message.as_deref().unwrap_or("")
+        app.status_message.as_deref().unwrap_or(""),
+        theme_info
     ));
 
     frame.render_widget(
@@ -608,28 +624,69 @@ fn render_pagination(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Renders the command bar at the bottom of the UI.
 fn render_command_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let command = if app.input_mode == InputMode::Command {
-        format!(":{}", app.command_input) // Show command prefix in command mode
-    } else {
-        String::new() // Empty in normal/insert mode
-    };
-
-    frame.render_widget(
-        Paragraph::new(command).style(
-            Style::default()
-                .fg(app.config.theme.text_color())
-                .bg(app.config.theme.surface0_color()),
-        ), // Style with theme colors
-        area,
-    );
-
-    // Place the terminal cursor at the end of the command input when in Command mode
     if app.input_mode == InputMode::Command {
+        // Split area into command input and suggestions
+        let chunks = Layout::default()
+            .direction(LayoutDirection::Vertical)
+            .constraints([
+                Constraint::Length(1), // Command input
+                Constraint::Length(5), // Suggestions (show more)
+            ])
+            .split(area);
+
+        let command = format!(":{}", app.command_input);
+        
+        // Render command input
+        frame.render_widget(
+            Paragraph::new(command).style(
+                Style::default()
+                    .fg(app.config.theme.text_color())
+                    .bg(app.config.theme.surface0_color()),
+            ),
+            chunks[0],
+        );
+
+        // Render suggestions
+        if !app.command_suggestions.is_empty() {
+            let suggestion_items: Vec<ListItem> = app.command_suggestions
+                .iter()
+                .enumerate()
+                .map(|(idx, suggestion)| {
+                    let style = if Some(idx) == app.selected_suggestion {
+                        Style::default()
+                            .fg(app.config.theme.base_color())
+                            .bg(app.config.theme.blue_color())
+                    } else {
+                        Style::default()
+                            .fg(app.config.theme.text_color())
+                            .bg(app.config.theme.surface1_color())
+                    };
+                    ListItem::new(suggestion.as_str()).style(style)
+                })
+                .collect();
+
+            let suggestions_list = List::new(suggestion_items)
+                .style(Style::default().bg(app.config.theme.surface1_color()));
+
+            frame.render_widget(suggestions_list, chunks[1]);
+        }
+
+        // Place the terminal cursor at the end of the command input
         let cursor_x = area.x + 1 + app.command_input.len() as u16; // account for ':'
         let cursor_y = area.y;
         frame.set_cursor_position(ratatui::layout::Position {
             x: cursor_x,
             y: cursor_y,
         });
+    } else {
+        // Empty command bar in normal mode
+        frame.render_widget(
+            Paragraph::new("").style(
+                Style::default()
+                    .fg(app.config.theme.text_color())
+                    .bg(app.config.theme.surface0_color()),
+            ),
+            area,
+        );
     }
 }

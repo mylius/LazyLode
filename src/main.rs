@@ -753,12 +753,18 @@ async fn handle_command_input(key: KeyEvent, app: &mut App) -> Result<(), io::Er
             app.input_mode = InputMode::Normal;
             app.active_block = ActiveBlock::Connections;
             app.command_input.clear();
+            app.command_suggestions.clear();
+            app.selected_suggestion = None;
+            // Restore the saved theme if we were previewing
+            let _ = app.restore_theme();
         }
         KeyCode::Enter => {
             let command = app.command_input.clone();
             app.command_input.clear();
             app.input_mode = InputMode::Normal;
             app.active_block = ActiveBlock::Connections;
+            app.command_suggestions.clear();
+            app.selected_suggestion = None;
             
             // Process the command
             if command == "themes" {
@@ -776,11 +782,40 @@ async fn handle_command_input(key: KeyEvent, app: &mut App) -> Result<(), io::Er
                 app.status_message = Some(format!("Unknown command: {}", command));
             }
         }
+        KeyCode::Up => {
+            app.select_previous_suggestion();
+            // Preview theme if suggestion is a theme command
+            if let Some(suggestion) = app.get_selected_suggestion() {
+                if suggestion.starts_with("theme ") {
+                    let theme_name = suggestion.strip_prefix("theme ").unwrap_or("");
+                    if !theme_name.is_empty() {
+                        let _ = app.preview_theme(theme_name);
+                    }
+                }
+            }
+        }
+        KeyCode::Down => {
+            app.select_next_suggestion();
+            // Preview theme if suggestion is a theme command
+            if let Some(suggestion) = app.get_selected_suggestion() {
+                if suggestion.starts_with("theme ") {
+                    let theme_name = suggestion.strip_prefix("theme ").unwrap_or("");
+                    if !theme_name.is_empty() {
+                        let _ = app.preview_theme(theme_name);
+                    }
+                }
+            }
+        }
+        KeyCode::Tab => {
+            app.apply_selected_suggestion();
+        }
         KeyCode::Backspace => {
             app.command_input.pop();
+            app.update_command_suggestions();
         }
         KeyCode::Char(c) => {
             app.command_input.push(c);
+            app.update_command_suggestions();
         }
         _ => {}
     }

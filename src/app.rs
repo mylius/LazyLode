@@ -177,6 +177,8 @@ pub struct App {
     pub clipboard: String,
     pub last_key_was_d: bool,
     pub awaiting_replace: bool,
+    pub command_suggestions: Vec<String>,
+    pub selected_suggestion: Option<usize>,
 }
 
 impl App {
@@ -213,6 +215,8 @@ impl App {
             clipboard: String::new(),
             last_key_was_d: false,
             awaiting_replace: false,
+            command_suggestions: Vec::new(),
+            selected_suggestion: None,
         };
 
         app.load_connections();
@@ -1379,6 +1383,99 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    /// Updates command suggestions based on current input
+    pub fn update_command_suggestions(&mut self) {
+        let input = self.command_input.to_lowercase();
+        let mut suggestions = Vec::new();
+        
+        if input.is_empty() || "themes".starts_with(&input) {
+            suggestions.push("themes".to_string());
+        }
+        
+        if input.is_empty() || "theme".starts_with(&input) {
+            suggestions.push("theme".to_string());
+        }
+        
+        if input.starts_with("theme ") {
+            let theme_query = input.strip_prefix("theme ").unwrap_or("");
+            if let Ok(themes) = crate::config::Config::list_themes() {
+                for theme in themes {
+                    if theme_query.is_empty() || theme.to_lowercase().contains(theme_query) {
+                        suggestions.push(format!("theme {}", theme));
+                    }
+                }
+            }
+        }
+        
+        self.command_suggestions = suggestions;
+        self.selected_suggestion = if self.command_suggestions.is_empty() {
+            None
+        } else {
+            Some(0)
+        };
+    }
+
+    /// Moves suggestion selection up
+    pub fn select_previous_suggestion(&mut self) {
+        if let Some(selected) = self.selected_suggestion {
+            if selected > 0 {
+                self.selected_suggestion = Some(selected - 1);
+            } else {
+                self.selected_suggestion = Some(self.command_suggestions.len() - 1);
+            }
+        }
+    }
+
+    /// Moves suggestion selection down
+    pub fn select_next_suggestion(&mut self) {
+        if let Some(selected) = self.selected_suggestion {
+            if selected + 1 < self.command_suggestions.len() {
+                self.selected_suggestion = Some(selected + 1);
+            } else {
+                self.selected_suggestion = Some(0);
+            }
+        }
+    }
+
+    /// Gets the currently selected suggestion
+    pub fn get_selected_suggestion(&self) -> Option<&String> {
+        self.selected_suggestion
+            .and_then(|idx| self.command_suggestions.get(idx))
+    }
+
+    /// Applies the selected suggestion to command input
+    pub fn apply_selected_suggestion(&mut self) {
+        if let Some(suggestion) = self.get_selected_suggestion() {
+            self.command_input = suggestion.clone();
+            self.update_command_suggestions();
+        }
+    }
+
+    /// Previews a theme without switching to it
+    pub fn preview_theme(&mut self, theme_name: &str) -> anyhow::Result<()> {
+        if let Ok(theme) = crate::config::Config::load_theme(theme_name) {
+            self.config.theme = theme;
+            self.config.theme_name = theme_name.to_string();
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Failed to load theme: {}", theme_name))
+        }
+    }
+
+    /// Restores the saved theme (cancels preview)
+    pub fn restore_theme(&mut self) -> anyhow::Result<()> {
+        self.config.load_theme(&self.config.theme_name)
+            .map(|theme| {
+                self.config.theme = theme;
+            })
+            .map_err(|e| anyhow::anyhow!("Failed to restore theme: {}", e))
+    }
+
+    /// Gets the current theme name
+    pub fn get_current_theme_name(&self) -> &str {
+        &self.config.theme_name
     }
 
     /// Selects the next result tab.
