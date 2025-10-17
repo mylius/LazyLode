@@ -446,6 +446,10 @@ async fn handle_connections_input_normal_mode(
                 // Handle delete action
                 app.delete_connection();
             }
+            Action::EnterCommand => {
+                app.input_mode = InputMode::Command;
+                app.active_block = ActiveBlock::CommandInput;
+            }
             _ => {}
         }
     } else {
@@ -562,6 +566,10 @@ async fn handle_query_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<
             }
             Action::Navigation(nav_action) => {
                 app.handle_navigation(nav_action);
+            }
+            Action::EnterCommand => {
+                app.input_mode = InputMode::Command;
+                app.active_block = ActiveBlock::CommandInput;
             }
             _ => {}
         }
