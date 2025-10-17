@@ -27,6 +27,10 @@ pub struct Theme {
     pub peach: Option<[u8; 3]>,
     pub yellow: Option<[u8; 3]>,
     pub green: Option<[u8; 3]>,
+
+    // Header colors
+    pub header_bg: Option<[u8; 3]>,
+    pub header_fg: Option<[u8; 3]>,
 }
 
 impl Theme {
@@ -48,6 +52,8 @@ impl Theme {
             peach: None,
             yellow: None,
             green: None,
+            header_bg: None,
+            header_fg: None,
         }
     }
 
@@ -93,5 +99,13 @@ impl Theme {
 
     pub fn accent_color(&self) -> Color {
         self.color(self.mauve, Color::Cyan)
+    }
+
+    pub fn header_bg_color(&self) -> Color {
+        self.bg_color(self.header_bg)
+    }
+
+    pub fn header_fg_color(&self) -> Color {
+        self.color(self.header_fg, Color::White)
     }
 }

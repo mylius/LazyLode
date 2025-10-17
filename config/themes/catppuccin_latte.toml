@@ -20,3 +20,7 @@ red = [210, 15, 57]
 peach = [254, 100, 11]
 yellow = [223, 142, 29]
 green = [64, 160, 43]
+
+# Header colors
+header_bg = [186, 187, 241]
+header_fg = [136, 57, 239]

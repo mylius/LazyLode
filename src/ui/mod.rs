@@ -291,10 +291,24 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
     let query_state = app.current_query_state();
 
     // WHERE clause
-    let mut where_block = Block::default().title("WHERE").borders(Borders::ALL);
+    let mut where_block = Block::default()
+        .title("WHERE")
+        .borders(Borders::ALL)
+        .title_style(
+            Style::default()
+                .fg(app.config.theme.header_fg_color())
+                .bg(app.config.theme.header_bg_color())
+        );
 
     // ORDER BY clause
-    let mut order_by_block = Block::default().title("ORDER BY").borders(Borders::ALL);
+    let mut order_by_block = Block::default()
+        .title("ORDER BY")
+        .borders(Borders::ALL)
+        .title_style(
+            Style::default()
+                .fg(app.config.theme.header_fg_color())
+                .bg(app.config.theme.header_bg_color())
+        );
 
     // If query input is active pane, highlight the current field
     if app.active_pane == Pane::QueryInput {
@@ -441,7 +455,14 @@ fn render_result_tabs(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Renders the results table.
 fn render_results(frame: &mut Frame, app: &App, area: Rect) {
-    let mut block = Block::default().title("Results").borders(Borders::ALL);
+    let mut block = Block::default()
+        .title("Results")
+        .borders(Borders::ALL)
+        .title_style(
+            Style::default()
+                .fg(app.config.theme.header_fg_color())
+                .bg(app.config.theme.header_bg_color())
+        );
     if app.active_pane == Pane::Results {
         block = block.border_style(Style::default().fg(app.config.theme.accent_color()));
     }
@@ -582,6 +603,11 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .title("Results")
                 .borders(Borders::ALL)
+                .title_style(
+                    Style::default()
+                        .fg(app.config.theme.header_fg_color())
+                        .bg(app.config.theme.header_bg_color())
+                )
                 .style(
                     Style::default()
                         .fg(app.config.theme.text_color())
@@ -593,7 +619,14 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_pagination(frame: &mut Frame, app: &App, area: Rect) {
-    let mut block = Block::default().title("Pagination").borders(Borders::ALL);
+    let mut block = Block::default()
+        .title("Pagination")
+        .borders(Borders::ALL)
+        .title_style(
+            Style::default()
+                .fg(app.config.theme.header_fg_color())
+                .bg(app.config.theme.header_bg_color())
+        );
     if app.active_pane == Pane::Results {
         block = block.border_style(Style::default().fg(app.config.theme.accent_color()));
     }
