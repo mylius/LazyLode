@@ -557,13 +557,6 @@ async fn handle_query_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<
                     app.cursor_position.1 = app.cursor_position.1.min(len);
                 }
             }
-            Action::Navigation(NavigationAction::FocusPane(pane)) => {
-                app.active_pane = pane;
-                if pane == Pane::QueryInput {
-                    let len = app.get_current_field_length();
-                    app.cursor_position.1 = app.cursor_position.1.min(len);
-                }
-            }
             Action::Navigation(nav_action) => {
                 app.handle_navigation(nav_action);
             }
@@ -785,7 +778,7 @@ async fn handle_command_input(key: KeyEvent, app: &mut App) -> Result<(), io::Er
         KeyCode::Up => {
             app.select_previous_suggestion();
             // Preview theme if suggestion is a theme command
-            if let Some(suggestion) = app.get_selected_suggestion() {
+            if let Some(suggestion) = app.get_selected_suggestion().cloned() {
                 if suggestion.starts_with("theme ") {
                     let theme_name = suggestion.strip_prefix("theme ").unwrap_or("");
                     if !theme_name.is_empty() {
@@ -797,7 +790,7 @@ async fn handle_command_input(key: KeyEvent, app: &mut App) -> Result<(), io::Er
         KeyCode::Down => {
             app.select_next_suggestion();
             // Preview theme if suggestion is a theme command
-            if let Some(suggestion) = app.get_selected_suggestion() {
+            if let Some(suggestion) = app.get_selected_suggestion().cloned() {
                 if suggestion.starts_with("theme ") {
                     let theme_name = suggestion.strip_prefix("theme ").unwrap_or("");
                     if !theme_name.is_empty() {

@@ -655,7 +655,7 @@ fn render_command_bar(frame: &mut Frame, app: &App, area: Rect) {
                     let style = if Some(idx) == app.selected_suggestion {
                         Style::default()
                             .fg(app.config.theme.base_color())
-                            .bg(app.config.theme.blue_color())
+                            .bg(app.config.theme.accent_color())
                     } else {
                         Style::default()
                             .fg(app.config.theme.text_color())

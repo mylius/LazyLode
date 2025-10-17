@@ -87,7 +87,7 @@ impl Config {
         Ok(())
     }
 
-    fn load_theme(theme_name: &str) -> Result<Theme> {
+    pub fn load_theme(theme_name: &str) -> Result<Theme> {
         let theme_dir = Self::get_config_dir().join("themes");
         let theme_path = theme_dir.join(format!("{}.toml", theme_name));
 
