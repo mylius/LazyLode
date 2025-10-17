@@ -3,6 +3,7 @@ use crate::command::CommandBuffer;
 use crate::input::{NavigationAction, TreeAction};
 use crate::logging;
 use crate::ui::types::{Direction, Pane};
+use crate::navigation::{NavigationManager, NavigationConfig, NavigationState};
 use clipboard::{ClipboardContext, ClipboardProvider};
 
 use crate::config::Config;
@@ -177,6 +178,8 @@ pub struct App {
     pub clipboard: String,
     pub last_key_was_d: bool,
     pub awaiting_replace: bool,
+    /// New navigation system
+    pub navigation_manager: NavigationManager,
 }
 
 impl App {
@@ -213,6 +216,7 @@ impl App {
             clipboard: String::new(),
             last_key_was_d: false,
             awaiting_replace: false,
+            navigation_manager: NavigationManager::new(config.navigation.clone()),
         };
 
         app.load_connections();

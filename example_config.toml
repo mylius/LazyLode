@@ -1,0 +1,71 @@
+# Example configuration for LazyLode with new navigation system
+
+theme = "catppuccin_mocha"
+
+[database]
+default_port_postgres = 5432
+default_port_mongodb = 27017
+
+# Navigation configuration
+[navigation]
+default_editing_mode = "Vim"  # or "Cursor"
+
+# Pane hotkeys (no modifier needed)
+[navigation.pane_hotkeys]
+c = "Connections"
+q = "QueryInput"
+r = "Results"
+s = "SchemaExplorer"
+":" = "CommandLine"
+
+# Box hotkeys within panes
+[navigation.box_hotkeys]
+t = "TextInput"
+d = "DataTable"
+v = "TreeView"
+l = "ListView"
+
+# Vim configuration
+[navigation.vim_config]
+insert_key = 'i'
+visual_key = 'v'
+command_key = ':'
+exit_key = "Esc"
+show_mode_indicator = true
+
+# Cursor configuration
+[navigation.cursor_config]
+show_cursor = true
+cursor_style = "Bar"  # "Block", "Bar", or "Underline"
+
+# Keymap configuration (legacy)
+[keymap]
+left_key = 'h'
+right_key = 'l'
+up_key = 'k'
+down_key = 'j'
+connections_key = 'c'
+query_key = 'q'
+data_key = 'd'
+sort_key = 's'
+next_tab_key = 'n'
+prev_tab_key = 'p'
+first_page_key = 'g'
+last_page_key = 'G'
+next_page_key = '.'
+prev_page_key = ','
+search_key = '/'
+edit_key = 'e'
+delete_key = 'd'
+copy_key = 'y'
+pane_modifier = "Shift"
+follow_fk_key = 'l'
+
+# SSH tunnels
+[[ssh_tunnels]]
+name = "example-tunnel"
+host = "example.com"
+port = 22
+username = "user"
+password = "password"
+private_key_path = "/path/to/key"

@@ -1,5 +1,6 @@
 use crate::database::{ConnectionConfig, SSHConfig};
 use crate::input::KeyConfig;
+use crate::navigation::NavigationConfig;
 use crate::theme::Theme;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,8 @@ pub struct ConfigFile {
     pub ssh_tunnels: Vec<SSHTunnelProfile>,
     #[serde(default)]
     pub keymap: KeyConfig,
+    #[serde(default)]
+    pub navigation: NavigationConfig,
 }
 
 #[derive(Deserialize, Serialize, Default, Clone)]
@@ -32,6 +35,7 @@ pub struct Config {
     pub connections: Vec<ConnectionConfig>,
     pub ssh_tunnels: Vec<SSHTunnelProfile>,
     pub keymap: KeyConfig,
+    pub navigation: NavigationConfig,
 }
 
 #[derive(Deserialize, Serialize, Default, Clone)]
@@ -83,6 +87,7 @@ impl Config {
                 connections: Vec::new(),
                 ssh_tunnels: Vec::new(),
                 keymap: KeyConfig::default(),
+                navigation: NavigationConfig::default(),
             };
 
             let toml_string = toml::to_string_pretty(&default_config)
@@ -103,6 +108,7 @@ impl Config {
                 connections: Vec::new(),
                 ssh_tunnels: Vec::new(),
                 keymap: KeyConfig::default(),
+                navigation: NavigationConfig::default(),
             }
         });
 
@@ -118,6 +124,7 @@ impl Config {
             connections: config_file.connections,
             ssh_tunnels: config_file.ssh_tunnels,
             keymap: config_file.keymap,
+            navigation: config_file.navigation,
         }
     }
 
@@ -155,6 +162,7 @@ impl Config {
             connections: self.connections.clone(),
             ssh_tunnels: self.ssh_tunnels.clone(),
             keymap: self.keymap.clone(),
+            navigation: self.navigation.clone(),
         };
 
         let toml_string =

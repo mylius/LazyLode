@@ -4,6 +4,7 @@ mod config;
 mod database;
 mod input;
 mod logging;
+mod navigation;
 mod theme;
 mod ui;
 
@@ -29,6 +30,7 @@ use ratatui::widgets::{Block, Borders};
 
 use crate::app::{ActiveBlock, App, ConnectionForm, InputMode};
 use crate::input::{Action, KeyConfig, NavigationAction};
+use crate::navigation::NavigationInputHandler;
 use crate::ui::types::{Direction, Pane};
 
 fn setup_panic_hook() {
@@ -145,34 +147,9 @@ async fn run_app_tick<B: ratatui::backend::Backend>(
 
     match event::read()? {
         Event::Key(key) => {
-            if KeyCode::Char('q') == key.code && key.modifiers.is_empty() {
-                app.quit();
-            }
-            if app.input_mode == InputMode::Normal
-                && key.modifiers.is_empty()
-                && matches_search_key(&app.config.keymap, key.code)
-            {
-                if !app.show_connection_modal {
-                    app.focus_where_input();
-                }
-                return Ok(());
-            }
-            if app.show_connection_modal {
-                if let ActiveBlock::ConnectionModal = app.active_block {
-                    handle_connection_modal_input(key, app).await?;
-                }
-            } else {
-                match app.active_pane {
-                    Pane::Connections => {
-                        handle_connections_input(key, app).await?;
-                    }
-                    Pane::QueryInput => {
-                        handle_query_input(key, app).await?;
-                    }
-                    Pane::Results => {
-                        handle_results_input(key, app).await?;
-                    }
-                }
+            // Use the new navigation input handler
+            if let Err(e) = NavigationInputHandler::handle_key(key.code, key.modifiers, app).await {
+                logging::error(&format!("Error handling key input: {}", e))?;
             }
 
             if app.should_quit {
