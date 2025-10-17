@@ -343,9 +343,10 @@ pub enum NavigationAction {
 }
 
 /// Configuration for navigation hotkeys
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NavigationConfig {
     /// Key mapping configuration
+    #[serde(skip, default = "KeyMapping::default")]
     pub key_mapping: KeyMapping,
     /// Default editing mode
     pub default_editing_mode: EditingMode,

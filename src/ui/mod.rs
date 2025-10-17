@@ -112,7 +112,7 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     // Render header paragraph
-    let header = Line::from(format!("Connections (press 'a' to add){}", _nav_info));
+    let header = Line::from(format!("Connections (press 'a' to add){}", nav_info));
     let mut block = Block::default().borders(Borders::ALL).style(
         Style::default()
             .fg(app.config.theme.text_color())
@@ -123,13 +123,8 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     if app.active_pane == Pane::Connections {
         block = block.border_style(Style::default().fg(app.config.theme.accent_color()));
     }
-    
-    // Show navigation info if this is the active pane
-    let nav_info = if app.active_pane == Pane::Connections {
-        format!(" [{}]", app.navigation_manager.get_navigation_info())
-    } else {
-        String::new()
-    };
+
+    // nav_info computed above
 
     frame.render_widget(Paragraph::new(header).block(block), chunks[0]);
 
@@ -451,7 +446,7 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         String::new()
     };
-    
+
     let results_title = format!("Results{}", results_nav_info);
     let mut block = Block::default().title(results_title).borders(Borders::ALL);
     if app.active_pane == Pane::Results {

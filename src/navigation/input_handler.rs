@@ -2,8 +2,8 @@ use crate::app::App;
 use crate::input::{Action, KeyConfig, NavigationAction as OldNavigationAction, TreeAction};
 use crate::navigation::{NavigationManager, NavigationMigration};
 use crate::ui::types::{Direction as OldDirection, Pane as OldPane};
-use crossterm::event::{KeyCode, KeyModifiers};
 use anyhow::Result;
+use crossterm::event::{KeyCode, KeyModifiers};
 
 /// Unified input handler that uses the new navigation system
 pub struct NavigationInputHandler;
@@ -64,8 +64,12 @@ impl NavigationInputHandler {
 
     async fn handle_connection_modal_input(key: KeyCode, app: &mut App) -> Result<()> {
         match app.input_mode {
-            crate::app::InputMode::Normal => Self::handle_connection_modal_input_normal_mode(key, app).await,
-            crate::app::InputMode::Insert => Self::handle_connection_modal_input_insert_mode(key, app).await,
+            crate::app::InputMode::Normal => {
+                Self::handle_connection_modal_input_normal_mode(key, app).await
+            }
+            crate::app::InputMode::Insert => {
+                Self::handle_connection_modal_input_insert_mode(key, app).await
+            }
             _ => Ok(()),
         }
     }
@@ -204,14 +208,24 @@ impl NavigationInputHandler {
         Ok(())
     }
 
-    async fn handle_connections_input(key: KeyCode, _modifiers: KeyModifiers, app: &mut App) -> Result<()> {
+    async fn handle_connections_input(
+        key: KeyCode,
+        modifiers: KeyModifiers,
+        app: &mut App,
+    ) -> Result<()> {
         match app.input_mode {
-            crate::app::InputMode::Normal => Self::handle_connections_input_normal_mode(key, modifiers, app).await,
+            crate::app::InputMode::Normal => {
+                Self::handle_connections_input_normal_mode(key, modifiers, app).await
+            }
             _ => Ok(()),
         }
     }
 
-    async fn handle_connections_input_normal_mode(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
+    async fn handle_connections_input_normal_mode(
+        key: KeyCode,
+        modifiers: KeyModifiers,
+        app: &mut App,
+    ) -> Result<()> {
         if let Some(action) = app.config.keymap.get_action(key, KeyModifiers::empty()) {
             match action {
                 Action::Navigation(nav_action) => match nav_action {
@@ -220,7 +234,10 @@ impl NavigationInputHandler {
                         OldDirection::Down => app.move_selection_down(),
                         OldDirection::Right => {
                             if let Err(e) = app.handle_tree_action(TreeAction::Expand).await {
-                                let _ = crate::logging::error(&format!("Error expanding connection: {}", e));
+                                let _ = crate::logging::error(&format!(
+                                    "Error expanding connection: {}",
+                                    e
+                                ));
                             }
                         }
                         _ => {}
@@ -239,7 +256,8 @@ impl NavigationInputHandler {
                 }
                 Action::PreviousPage => {
                     if let Err(e) = app.previous_page().await {
-                        let _ = crate::logging::error(&format!("Error going to previous page: {}", e));
+                        let _ =
+                            crate::logging::error(&format!("Error going to previous page: {}", e));
                     }
                 }
                 Action::NextPage => {
@@ -272,7 +290,11 @@ impl NavigationInputHandler {
                             current_field: 0,
                             ssh_enabled: connection.ssh_tunnel.is_some(),
                             ssh_host: connection.ssh_tunnel.clone().unwrap_or_default().host,
-                            ssh_username: connection.ssh_tunnel.clone().unwrap_or_default().username,
+                            ssh_username: connection
+                                .ssh_tunnel
+                                .clone()
+                                .unwrap_or_default()
+                                .username,
                             ssh_port: connection
                                 .ssh_tunnel
                                 .clone()
@@ -319,15 +341,27 @@ impl NavigationInputHandler {
         Ok(())
     }
 
-    async fn handle_query_input(key: KeyCode, _modifiers: KeyModifiers, app: &mut App) -> Result<()> {
+    async fn handle_query_input(
+        key: KeyCode,
+        modifiers: KeyModifiers,
+        app: &mut App,
+    ) -> Result<()> {
         match app.input_mode {
-            crate::app::InputMode::Normal => Self::handle_query_input_normal_mode(key, modifiers, app).await,
-            crate::app::InputMode::Insert => Self::handle_query_input_insert_mode(key, modifiers, app).await,
+            crate::app::InputMode::Normal => {
+                Self::handle_query_input_normal_mode(key, modifiers, app).await
+            }
+            crate::app::InputMode::Insert => {
+                Self::handle_query_input_insert_mode(key, modifiers, app).await
+            }
             _ => Ok(()),
         }
     }
 
-    async fn handle_query_input_normal_mode(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
+    async fn handle_query_input_normal_mode(
+        key: KeyCode,
+        modifiers: KeyModifiers,
+        app: &mut App,
+    ) -> Result<()> {
         // First handle query-pane Vim-like keys explicitly
         match key {
             KeyCode::Char('i') if modifiers.is_empty() => {
@@ -418,7 +452,11 @@ impl NavigationInputHandler {
         Ok(())
     }
 
-    async fn handle_query_input_insert_mode(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
+    async fn handle_query_input_insert_mode(
+        key: KeyCode,
+        modifiers: KeyModifiers,
+        app: &mut App,
+    ) -> Result<()> {
         match key {
             KeyCode::Esc => {
                 app.input_mode = crate::app::InputMode::Normal;
@@ -432,22 +470,38 @@ impl NavigationInputHandler {
             KeyCode::Char(c) => app.insert_char(c),
             KeyCode::Backspace => app.delete_char(),
             KeyCode::Up => app.handle_navigation(OldNavigationAction::Direction(OldDirection::Up)),
-            KeyCode::Down => app.handle_navigation(OldNavigationAction::Direction(OldDirection::Down)),
-            KeyCode::Left => app.handle_navigation(OldNavigationAction::Direction(OldDirection::Left)),
-            KeyCode::Right => app.handle_navigation(OldNavigationAction::Direction(OldDirection::Right)),
+            KeyCode::Down => {
+                app.handle_navigation(OldNavigationAction::Direction(OldDirection::Down))
+            }
+            KeyCode::Left => {
+                app.handle_navigation(OldNavigationAction::Direction(OldDirection::Left))
+            }
+            KeyCode::Right => {
+                app.handle_navigation(OldNavigationAction::Direction(OldDirection::Right))
+            }
             _ => {}
         }
         Ok(())
     }
 
-    async fn handle_results_input(key: KeyCode, _modifiers: KeyModifiers, app: &mut App) -> Result<()> {
+    async fn handle_results_input(
+        key: KeyCode,
+        modifiers: KeyModifiers,
+        app: &mut App,
+    ) -> Result<()> {
         match app.input_mode {
-            crate::app::InputMode::Normal => Self::handle_results_input_normal_mode(key, modifiers, app).await,
+            crate::app::InputMode::Normal => {
+                Self::handle_results_input_normal_mode(key, modifiers, app).await
+            }
             _ => Ok(()),
         }
     }
 
-    async fn handle_results_input_normal_mode(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
+    async fn handle_results_input_normal_mode(
+        key: KeyCode,
+        modifiers: KeyModifiers,
+        app: &mut App,
+    ) -> Result<()> {
         if app.show_deletion_modal {
             match key {
                 KeyCode::Esc => {
@@ -461,7 +515,8 @@ impl NavigationInputHandler {
                 }
                 KeyCode::Enter => {
                     if let Err(e) = app.confirm_deletions().await {
-                        let _ = crate::logging::error(&format!("Error confirming deletions: {}", e));
+                        let _ =
+                            crate::logging::error(&format!("Error confirming deletions: {}", e));
                     }
                     app.show_deletion_modal = false;
                 }
@@ -513,7 +568,8 @@ impl NavigationInputHandler {
                 },
                 Action::FollowForeignKey => {
                     if let Err(e) = app.follow_foreign_key().await {
-                        let _ = crate::logging::error(&format!("Error following foreign key: {}", e));
+                        let _ =
+                            crate::logging::error(&format!("Error following foreign key: {}", e));
                     }
                 }
                 Action::FirstPage => {
@@ -523,7 +579,8 @@ impl NavigationInputHandler {
                 }
                 Action::PreviousPage => {
                     if let Err(e) = app.previous_page().await {
-                        let _ = crate::logging::error(&format!("Error going to previous page: {}", e));
+                        let _ =
+                            crate::logging::error(&format!("Error going to previous page: {}", e));
                     }
                 }
                 Action::NextPage => {
@@ -551,7 +608,10 @@ impl NavigationInputHandler {
                                 app.show_deletion_modal = false;
                             }
                             Err(e) => {
-                                let _ = crate::logging::error(&format!("Error confirming deletions: {}", e));
+                                let _ = crate::logging::error(&format!(
+                                    "Error confirming deletions: {}",
+                                    e
+                                ));
                             }
                         }
                     } else if app
