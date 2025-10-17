@@ -1,7 +1,7 @@
 use crate::navigation::types::{
-    Pane, Box, Direction, NavigationConfig, NavigationState, EditingMode, VimMode
+    Pane, Box, Direction, NavigationConfig, NavigationState, EditingMode, VimMode, 
+    KeyCombination, KeyMapping, NavigationAction
 };
-use crate::navigation::key_mapping::{KeyCombination, KeyMapping, NavigationAction};
 use crate::navigation::box_manager::BoxManager;
 use crossterm::event::{KeyCode, KeyModifiers};
 
