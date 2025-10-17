@@ -1345,6 +1345,42 @@ impl App {
         Ok(())
     }
 
+    /// Lists available themes
+    pub fn list_themes(&mut self) -> anyhow::Result<()> {
+        match crate::config::Config::list_themes() {
+            Ok(themes) => {
+                if themes.is_empty() {
+                    self.status_message = Some("No themes available".to_string());
+                } else {
+                    let theme_list = themes.join(", ");
+                    self.status_message = Some(format!("Available themes: {}", theme_list));
+                }
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to list themes: {}", e);
+                logging::error(&error_msg)?;
+                self.status_message = Some(error_msg);
+            }
+        }
+        Ok(())
+    }
+
+    /// Switches to a different theme
+    pub fn switch_theme(&mut self, theme_name: &str) -> anyhow::Result<()> {
+        match self.config.switch_theme(theme_name) {
+            Ok(()) => {
+                self.status_message = Some(format!("Switched to theme: {}", theme_name));
+                logging::info(&format!("Theme switched to: {}", theme_name))?;
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to switch theme: {}", e);
+                logging::error(&error_msg)?;
+                self.status_message = Some(error_msg);
+            }
+        }
+        Ok(())
+    }
+
     /// Selects the next result tab.
     pub fn select_next_tab(&mut self) {
         if self.result_tabs.is_empty() {

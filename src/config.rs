@@ -50,6 +50,43 @@ impl Config {
         config_dir
     }
 
+    fn install_default_themes() -> Result<()> {
+        let user_theme_dir = Self::get_config_dir().join("themes");
+        std::fs::create_dir_all(&user_theme_dir).context("Failed to create themes directory")?;
+
+        // Get the project's config directory
+        let project_config_dir = std::env::current_dir()
+            .context("Failed to get current directory")?
+            .join("config")
+            .join("themes");
+
+        if project_config_dir.exists() {
+            let entries = std::fs::read_dir(&project_config_dir)
+                .context("Failed to read project themes directory")?;
+
+            for entry in entries {
+                let entry = entry.context("Failed to read directory entry")?;
+                let path = entry.path();
+                
+                if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                    let filename = path.file_name()
+                        .and_then(|n| n.to_str())
+                        .context("Invalid filename")?;
+                    
+                    let user_theme_path = user_theme_dir.join(filename);
+                    
+                    // Only copy if the theme doesn't already exist in user config
+                    if !user_theme_path.exists() {
+                        std::fs::copy(&path, &user_theme_path)
+                            .context(format!("Failed to copy theme file: {}", filename))?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn load_theme(theme_name: &str) -> Result<Theme> {
         let theme_dir = Self::get_config_dir().join("themes");
         let theme_path = theme_dir.join(format!("{}.toml", theme_name));
@@ -66,6 +103,11 @@ impl Config {
     fn load_config() -> Result<ConfigFile> {
         let config_dir = Self::get_config_dir();
         let config_path = config_dir.join("config.toml");
+
+        // Install default themes on first run
+        Self::install_default_themes().unwrap_or_else(|err| {
+            eprintln!("Warning: Failed to install default themes: {}", err);
+        });
 
         if config_path.exists() {
             let content =
@@ -162,6 +204,40 @@ impl Config {
 
         std::fs::write(&config_path, toml_string).context("Failed to write config file")?;
 
+        Ok(())
+    }
+
+    // List available themes
+    pub fn list_themes() -> Result<Vec<String>> {
+        let theme_dir = Self::get_config_dir().join("themes");
+        let mut themes = Vec::new();
+
+        if theme_dir.exists() {
+            let entries = std::fs::read_dir(&theme_dir)
+                .context("Failed to read themes directory")?;
+
+            for entry in entries {
+                let entry = entry.context("Failed to read directory entry")?;
+                let path = entry.path();
+                
+                if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        themes.push(stem.to_string());
+                    }
+                }
+            }
+        }
+
+        themes.sort();
+        Ok(themes)
+    }
+
+    // Switch theme
+    pub fn switch_theme(&mut self, theme_name: &str) -> Result<()> {
+        let theme = Self::load_theme(theme_name)?;
+        self.theme = theme;
+        self.theme_name = theme_name.to_string();
+        self.save()?;
         Ok(())
     }
 }

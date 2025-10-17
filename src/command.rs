@@ -126,7 +126,22 @@ impl CommandProcessor {
                 app.copy_cell()?;
                 return Ok(true);
             }
+            ":themes" => {
+                app.list_themes()?;
+                app.command_buffer.clear();
+                return Ok(true);
+            }
             _ => {}
+        }
+
+        // Check for theme switching commands
+        if command.starts_with(":theme ") {
+            let theme_name = command.strip_prefix(":theme ").unwrap_or("");
+            if !theme_name.is_empty() {
+                app.switch_theme(theme_name)?;
+                app.command_buffer.clear();
+                return Ok(true);
+            }
         }
 
         // If command starts with 'y' but wasn't handled above,
