@@ -318,7 +318,13 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
             && app.input_mode == InputMode::Insert
         {
             let mut content = state.where_clause.clone();
-            content.insert(app.cursor_position.1, '|'); // Add cursor
+            // Convert character position to byte position safely
+            let byte_pos = content
+                .char_indices()
+                .nth(app.cursor_position.1)
+                .map(|(pos, _)| pos)
+                .unwrap_or(content.len());
+            content.insert(byte_pos, '|'); // Add cursor
             content
         } else {
             state.where_clause.clone()
@@ -341,7 +347,13 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
             && app.input_mode == InputMode::Insert
         {
             let mut content = state.order_by_clause.clone();
-            content.insert(app.cursor_position.1, '|'); // Add cursor
+            // Convert character position to byte position safely
+            let byte_pos = content
+                .char_indices()
+                .nth(app.cursor_position.1)
+                .map(|(pos, _)| pos)
+                .unwrap_or(content.len());
+            content.insert(byte_pos, '|'); // Add cursor
             content
         } else {
             state.order_by_clause.clone()

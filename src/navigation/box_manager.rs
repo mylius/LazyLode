@@ -1,4 +1,4 @@
-use crate::navigation::types::{Box, Pane, Direction, VimMode, EditingMode};
+use crate::navigation::types::{Box, Pane, Direction, EditingMode};
 use crate::navigation::vim_editor::VimEditor;
 use crossterm::event::{KeyCode, KeyModifiers};
 

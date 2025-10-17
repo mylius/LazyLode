@@ -47,7 +47,7 @@ impl KeyCombination {
 impl fmt::Display for KeyCombination {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut parts = Vec::new();
-        
+
         if self.modifiers.contains(KeyModifiers::CONTROL) {
             parts.push("Ctrl");
         }
@@ -57,7 +57,7 @@ impl fmt::Display for KeyCombination {
         if self.modifiers.contains(KeyModifiers::SHIFT) {
             parts.push("Shift");
         }
-        
+
         let key_str = match self.key {
             KeyCode::Char(c) => c.to_string(),
             KeyCode::Backspace => "Backspace".to_string(),
@@ -79,7 +79,7 @@ impl fmt::Display for KeyCombination {
             KeyCode::Esc => "Esc".to_string(),
             _ => format!("{:?}", self.key),
         };
-        
+
         parts.push(&key_str);
         write!(f, "{}", parts.join("+"))
     }
@@ -139,70 +139,199 @@ impl KeyMapping {
 impl Default for KeyMapping {
     fn default() -> Self {
         let mut mapping = Self::new();
-        
-        // Default key mappings
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('q')), NavigationAction::Quit);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Esc), NavigationAction::Cancel);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('/')), NavigationAction::Search);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Enter), NavigationAction::Confirm);
-        
-        // Pane navigation
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('c')), NavigationAction::FocusConnections);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('q')), NavigationAction::FocusQueryInput);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('r')), NavigationAction::FocusResults);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('s')), NavigationAction::FocusSchemaExplorer);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char(':')), NavigationAction::FocusCommandLine);
-        
-        // Directional pane navigation
-        mapping.add_mapping(KeyCombination::with_shift(KeyCode::Char('h')), NavigationAction::FocusPaneLeft);
-        mapping.add_mapping(KeyCombination::with_shift(KeyCode::Char('l')), NavigationAction::FocusPaneRight);
-        mapping.add_mapping(KeyCombination::with_shift(KeyCode::Char('k')), NavigationAction::FocusPaneUp);
-        mapping.add_mapping(KeyCombination::with_shift(KeyCode::Char('j')), NavigationAction::FocusPaneDown);
-        
-        // Alternative pane navigation with Ctrl
-        mapping.add_mapping(KeyCombination::with_ctrl(KeyCode::Char('c')), NavigationAction::FocusConnections);
-        mapping.add_mapping(KeyCombination::with_ctrl(KeyCode::Char('q')), NavigationAction::FocusQueryInput);
-        mapping.add_mapping(KeyCombination::with_ctrl(KeyCode::Char('r')), NavigationAction::FocusResults);
-        mapping.add_mapping(KeyCombination::with_ctrl(KeyCode::Char('s')), NavigationAction::FocusSchemaExplorer);
-        
-        // Box navigation
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('t')), NavigationAction::FocusTextInput);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('d')), NavigationAction::FocusDataTable);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('v')), NavigationAction::FocusTreeView);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('l')), NavigationAction::FocusListView);
-        
+
+        // Basic actions
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('q')),
+            NavigationAction::Quit,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Esc),
+            NavigationAction::Cancel,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('/')),
+            NavigationAction::Search,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Enter),
+            NavigationAction::Confirm,
+        );
+
+        // Pane navigation - LazyVim style with Ctrl+number
+        mapping.add_mapping(
+            KeyCombination::with_shift(KeyCode::Char('T')),
+            NavigationAction::FocusConnections,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_shift(KeyCode::Char('F')),
+            NavigationAction::FocusQueryInput,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_shift(KeyCode::Char('R')),
+            NavigationAction::FocusResults,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_shift(KeyCode::Char('S')),
+            NavigationAction::FocusSchemaExplorer,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char(':')),
+            NavigationAction::FocusCommandLine,
+        );
+
+        // Directional pane navigation - LazyVim style with Ctrl+h/j/k/l
+        mapping.add_mapping(
+            KeyCombination::with_ctrl(KeyCode::Char('h')),
+            NavigationAction::FocusPaneLeft,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_ctrl(KeyCode::Char('l')),
+            NavigationAction::FocusPaneRight,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_ctrl(KeyCode::Char('k')),
+            NavigationAction::FocusPaneUp,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_ctrl(KeyCode::Char('j')),
+            NavigationAction::FocusPaneDown,
+        );
+
+        // Alternative directional pane navigation with Shift+h/j/k/l
+        mapping.add_mapping(
+            KeyCombination::with_shift(KeyCode::Char('H')),
+            NavigationAction::FocusPaneLeft,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_shift(KeyCode::Char('L')),
+            NavigationAction::FocusPaneRight,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_shift(KeyCode::Char('K')),
+            NavigationAction::FocusPaneUp,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_shift(KeyCode::Char('J')),
+            NavigationAction::FocusPaneDown,
+        );
+
+        // Box navigation - LazyVim style with Ctrl+letter
+        mapping.add_mapping(
+            KeyCombination::with_ctrl(KeyCode::Char('t')),
+            NavigationAction::FocusTextInput,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_ctrl(KeyCode::Char('d')),
+            NavigationAction::FocusDataTable,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_ctrl(KeyCode::Char('v')),
+            NavigationAction::FocusTreeView,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_ctrl(KeyCode::Char('b')),
+            NavigationAction::FocusListView,
+        );
+
         // Movement
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('h')), NavigationAction::MoveLeft);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('j')), NavigationAction::MoveDown);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('k')), NavigationAction::MoveUp);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('l')), NavigationAction::MoveRight);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Left), NavigationAction::MoveLeft);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Right), NavigationAction::MoveRight);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Up), NavigationAction::MoveUp);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Down), NavigationAction::MoveDown);
-        
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('h')),
+            NavigationAction::MoveLeft,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('j')),
+            NavigationAction::MoveDown,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('k')),
+            NavigationAction::MoveUp,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('l')),
+            NavigationAction::MoveRight,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Left),
+            NavigationAction::MoveLeft,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Right),
+            NavigationAction::MoveRight,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Up),
+            NavigationAction::MoveUp,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Down),
+            NavigationAction::MoveDown,
+        );
+
         // Vim-style editing
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('i')), NavigationAction::EnterInsertMode);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('a')), NavigationAction::EnterInsertMode);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('v')), NavigationAction::EnterVisualMode);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char(':')), NavigationAction::EnterCommandMode);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Esc), NavigationAction::EnterNormalMode);
-        
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('i')),
+            NavigationAction::EnterInsertMode,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('a')),
+            NavigationAction::EnterInsertMode,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('v')),
+            NavigationAction::EnterVisualMode,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char(':')),
+            NavigationAction::EnterCommandMode,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Esc),
+            NavigationAction::EnterNormalMode,
+        );
+
         // Edit mode switching
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('e')), NavigationAction::EnterEditMode);
-        mapping.add_mapping(KeyCombination::with_ctrl(KeyCode::Char('v')), NavigationAction::ToggleViewEditMode);
-        
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('e')),
+            NavigationAction::EnterEditMode,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_ctrl(KeyCode::Char('e')),
+            NavigationAction::ToggleViewEditMode,
+        );
+
         // Text editing
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Backspace), NavigationAction::DeleteCharBefore);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Delete), NavigationAction::DeleteChar);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('x')), NavigationAction::DeleteChar);
-        mapping.add_mapping(KeyCombination::simple(KeyCode::Char('r')), NavigationAction::ReplaceChar);
-        
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Backspace),
+            NavigationAction::DeleteCharBefore,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Delete),
+            NavigationAction::DeleteChar,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('x')),
+            NavigationAction::DeleteChar,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('r')),
+            NavigationAction::ReplaceChar,
+        );
+
         // Copy/paste
-        mapping.add_mapping(KeyCombination::with_ctrl(KeyCode::Char('c')), NavigationAction::Copy);
-        mapping.add_mapping(KeyCombination::with_ctrl(KeyCode::Char('v')), NavigationAction::Paste);
-        mapping.add_mapping(KeyCombination::with_ctrl(KeyCode::Char('x')), NavigationAction::Cut);
-        
+        mapping.add_mapping(
+            KeyCombination::with_ctrl(KeyCode::Char('c')),
+            NavigationAction::Copy,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_ctrl(KeyCode::Char('v')),
+            NavigationAction::Paste,
+        );
+        mapping.add_mapping(
+            KeyCombination::with_ctrl(KeyCode::Char('x')),
+            NavigationAction::Cut,
+        );
+
         mapping
     }
 }
@@ -219,15 +348,15 @@ impl KeyComboExt for KeyCode {
     fn to_combo(self) -> KeyCombination {
         KeyCombination::simple(self)
     }
-    
+
     fn with_ctrl(self) -> KeyCombination {
         KeyCombination::with_ctrl(self)
     }
-    
+
     fn with_alt(self) -> KeyCombination {
         KeyCombination::with_alt(self)
     }
-    
+
     fn with_shift(self) -> KeyCombination {
         KeyCombination::with_shift(self)
     }
@@ -306,13 +435,13 @@ pub enum NavigationAction {
     FocusCommandLine,
     NextPane,
     PreviousPane,
-    
+
     // Directional pane navigation
     FocusPaneLeft,
     FocusPaneRight,
     FocusPaneUp,
     FocusPaneDown,
-    
+
     // Box navigation
     FocusTextInput,
     FocusDataTable,
@@ -321,7 +450,7 @@ pub enum NavigationAction {
     FocusModal,
     NextBox,
     PreviousBox,
-    
+
     // Movement
     MoveLeft,
     MoveRight,
@@ -331,7 +460,7 @@ pub enum NavigationAction {
     MoveToEnd,
     MoveToNextWord,
     MoveToPreviousWord,
-    
+
     // Editing modes
     EnterInsertMode,
     EnterVisualMode,
@@ -340,7 +469,7 @@ pub enum NavigationAction {
     EnterEditMode,
     ExitEditMode,
     ToggleViewEditMode,
-    
+
     // Text editing
     InsertChar,
     DeleteChar,
@@ -349,7 +478,7 @@ pub enum NavigationAction {
     ReplaceChar,
     Undo,
     Redo,
-    
+
     // Special actions
     Quit,
     Confirm,

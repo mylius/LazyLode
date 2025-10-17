@@ -1,8 +1,7 @@
-use crate::navigation::types::{
-    Pane, Box, Direction, NavigationConfig, NavigationState, EditingMode, VimMode, 
-    KeyCombination, KeyMapping, NavigationAction
-};
 use crate::navigation::box_manager::BoxManager;
+use crate::navigation::types::{
+    Box, Direction, EditingMode, NavigationAction, NavigationConfig, NavigationState, Pane, VimMode,
+};
 use crossterm::event::{KeyCode, KeyModifiers};
 
 /// Main navigation manager that handles pane and box navigation
@@ -47,82 +46,42 @@ impl NavigationManager {
         &mut self.box_manager
     }
 
+    pub fn config(&self) -> &NavigationConfig {
+        &self.config
+    }
+
     /// Handle a navigation action
     pub fn handle_action(&mut self, action: NavigationAction) -> bool {
         match action {
             // Pane navigation
-            NavigationAction::FocusConnections => {
-                self.focus_pane(Pane::Connections)
-            }
-            NavigationAction::FocusQueryInput => {
-                self.focus_pane(Pane::QueryInput)
-            }
-            NavigationAction::FocusResults => {
-                self.focus_pane(Pane::Results)
-            }
-            NavigationAction::FocusSchemaExplorer => {
-                self.focus_pane(Pane::SchemaExplorer)
-            }
-            NavigationAction::FocusCommandLine => {
-                self.focus_pane(Pane::CommandLine)
-            }
-            NavigationAction::NextPane => {
-                self.next_pane()
-            }
-            NavigationAction::PreviousPane => {
-                self.previous_pane()
-            }
-            
+            NavigationAction::FocusConnections => self.focus_pane(Pane::Connections),
+            NavigationAction::FocusQueryInput => self.focus_pane(Pane::QueryInput),
+            NavigationAction::FocusResults => self.focus_pane(Pane::Results),
+            NavigationAction::FocusSchemaExplorer => self.focus_pane(Pane::SchemaExplorer),
+            NavigationAction::FocusCommandLine => self.focus_pane(Pane::CommandLine),
+            NavigationAction::NextPane => self.next_pane(),
+            NavigationAction::PreviousPane => self.previous_pane(),
+
             // Directional pane navigation
-            NavigationAction::FocusPaneLeft => {
-                self.focus_pane_direction(Direction::Left)
-            }
-            NavigationAction::FocusPaneRight => {
-                self.focus_pane_direction(Direction::Right)
-            }
-            NavigationAction::FocusPaneUp => {
-                self.focus_pane_direction(Direction::Up)
-            }
-            NavigationAction::FocusPaneDown => {
-                self.focus_pane_direction(Direction::Down)
-            }
-            
+            NavigationAction::FocusPaneLeft => self.focus_pane_direction(Direction::Left),
+            NavigationAction::FocusPaneRight => self.focus_pane_direction(Direction::Right),
+            NavigationAction::FocusPaneUp => self.focus_pane_direction(Direction::Up),
+            NavigationAction::FocusPaneDown => self.focus_pane_direction(Direction::Down),
+
             // Box navigation
-            NavigationAction::FocusTextInput => {
-                self.focus_box(Box::TextInput)
-            }
-            NavigationAction::FocusDataTable => {
-                self.focus_box(Box::DataTable)
-            }
-            NavigationAction::FocusTreeView => {
-                self.focus_box(Box::TreeView)
-            }
-            NavigationAction::FocusListView => {
-                self.focus_box(Box::ListView)
-            }
-            NavigationAction::FocusModal => {
-                self.focus_box(Box::Modal)
-            }
-            NavigationAction::NextBox => {
-                self.next_box()
-            }
-            NavigationAction::PreviousBox => {
-                self.previous_box()
-            }
-            
+            NavigationAction::FocusTextInput => self.focus_box(Box::TextInput),
+            NavigationAction::FocusDataTable => self.focus_box(Box::DataTable),
+            NavigationAction::FocusTreeView => self.focus_box(Box::TreeView),
+            NavigationAction::FocusListView => self.focus_box(Box::ListView),
+            NavigationAction::FocusModal => self.focus_box(Box::Modal),
+            NavigationAction::NextBox => self.next_box(),
+            NavigationAction::PreviousBox => self.previous_box(),
+
             // Movement
-            NavigationAction::MoveLeft => {
-                self.handle_directional_move(Direction::Left)
-            }
-            NavigationAction::MoveRight => {
-                self.handle_directional_move(Direction::Right)
-            }
-            NavigationAction::MoveUp => {
-                self.handle_directional_move(Direction::Up)
-            }
-            NavigationAction::MoveDown => {
-                self.handle_directional_move(Direction::Down)
-            }
+            NavigationAction::MoveLeft => self.handle_directional_move(Direction::Left),
+            NavigationAction::MoveRight => self.handle_directional_move(Direction::Right),
+            NavigationAction::MoveUp => self.handle_directional_move(Direction::Up),
+            NavigationAction::MoveDown => self.handle_directional_move(Direction::Down),
             NavigationAction::MoveToStart => {
                 // Handle move to start of line/field
                 self.box_manager.vim_editor_mut().move_to_line_start();
@@ -143,7 +102,7 @@ impl NavigationManager {
                 self.box_manager.vim_editor_mut().move_to_previous_word();
                 true
             }
-            
+
             // Mode switching
             NavigationAction::EnterInsertMode => {
                 self.box_manager.vim_editor_mut().mode = VimMode::Insert;
@@ -161,16 +120,10 @@ impl NavigationManager {
                 self.box_manager.vim_editor_mut().mode = VimMode::Normal;
                 true
             }
-            NavigationAction::EnterEditMode => {
-                self.enter_edit_mode()
-            }
-            NavigationAction::ExitEditMode => {
-                self.exit_edit_mode()
-            }
-            NavigationAction::ToggleViewEditMode => {
-                self.toggle_mode()
-            }
-            
+            NavigationAction::EnterEditMode => self.enter_edit_mode(),
+            NavigationAction::ExitEditMode => self.exit_edit_mode(),
+            NavigationAction::ToggleViewEditMode => self.toggle_mode(),
+
             // Text editing
             NavigationAction::InsertChar => {
                 // This would be handled by the box manager when a character is typed
@@ -181,7 +134,9 @@ impl NavigationManager {
                 true
             }
             NavigationAction::DeleteCharBefore => {
-                self.box_manager.vim_editor_mut().delete_char_before_cursor();
+                self.box_manager
+                    .vim_editor_mut()
+                    .delete_char_before_cursor();
                 true
             }
             NavigationAction::DeleteLine => {
@@ -200,7 +155,7 @@ impl NavigationManager {
                 // TODO: Implement redo functionality
                 false
             }
-            
+
             // Special actions
             NavigationAction::Quit => {
                 // This would be handled by the main application
@@ -244,7 +199,6 @@ impl NavigationManager {
         self.box_manager.handle_key(key, modifiers)
     }
 
-
     fn handle_directional_move(&mut self, direction: Direction) -> bool {
         // If we have an active box, let it handle the movement
         if self.box_manager.active_box().is_some() {
@@ -278,13 +232,13 @@ impl NavigationManager {
         if self.state.active_pane != pane {
             self.state.active_pane = pane;
             self.state.active_box = None;
-            
+
             // Set the first available box as active
             let available_boxes = self.box_manager.get_available_boxes(pane);
             if let Some(&first_box) = available_boxes.first() {
                 self.focus_box(first_box);
             }
-            
+
             true
         } else {
             false
@@ -303,28 +257,30 @@ impl NavigationManager {
     }
 
     fn next_pane(&mut self) -> bool {
-        let current_index = self.pane_order
+        let current_index = self
+            .pane_order
             .iter()
             .position(|&p| p == self.state.active_pane)
             .unwrap_or(0);
-        
+
         let next_index = (current_index + 1) % self.pane_order.len();
         let next_pane = self.pane_order[next_index];
         self.focus_pane(next_pane)
     }
 
     fn previous_pane(&mut self) -> bool {
-        let current_index = self.pane_order
+        let current_index = self
+            .pane_order
             .iter()
             .position(|&p| p == self.state.active_pane)
             .unwrap_or(0);
-        
+
         let prev_index = if current_index == 0 {
             self.pane_order.len() - 1
         } else {
             current_index - 1
         };
-        
+
         let prev_pane = self.pane_order[prev_index];
         self.focus_pane(prev_pane)
     }
@@ -378,31 +334,47 @@ impl NavigationManager {
     fn focus_pane_direction(&mut self, direction: Direction) -> bool {
         let current_pane = self.state.active_pane;
         let pane_order = &self.pane_order;
-        
+
         // Find current pane index
         let current_index = match pane_order.iter().position(|&p| p == current_pane) {
             Some(idx) => idx,
             None => return false,
         };
-        
+
         // Calculate new pane index based on direction
         let new_index = match direction {
             Direction::Left => {
-                if current_index > 0 { current_index - 1 } else { pane_order.len() - 1 }
+                if current_index > 0 {
+                    current_index - 1
+                } else {
+                    pane_order.len() - 1
+                }
             }
             Direction::Right => {
-                if current_index < pane_order.len() - 1 { current_index + 1 } else { 0 }
+                if current_index < pane_order.len() - 1 {
+                    current_index + 1
+                } else {
+                    0
+                }
             }
             Direction::Up => {
                 // For now, treat Up as previous pane
-                if current_index > 0 { current_index - 1 } else { pane_order.len() - 1 }
+                if current_index > 0 {
+                    current_index - 1
+                } else {
+                    pane_order.len() - 1
+                }
             }
             Direction::Down => {
                 // For now, treat Down as next pane
-                if current_index < pane_order.len() - 1 { current_index + 1 } else { 0 }
+                if current_index < pane_order.len() - 1 {
+                    current_index + 1
+                } else {
+                    0
+                }
             }
         };
-        
+
         // Focus the new pane
         let new_pane = pane_order[new_index];
         self.focus_pane(new_pane)

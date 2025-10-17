@@ -1,10 +1,10 @@
 use crate::app::App;
-use crate::input::{Action, KeyConfig, NavigationAction as OldNavigationAction, TreeAction};
-use crate::navigation::{NavigationManager, NavigationMigration};
-use crate::ui::types::Direction as OldDirection;
+use crate::input::{Action, NavigationAction as OldNavigationAction, TreeAction};
 use crate::navigation::types::Pane as OldPane;
+use crate::ui::types::Direction as OldDirection;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyModifiers};
+use futures::executor;
 
 /// Unified input handler that uses the new navigation system
 pub struct NavigationInputHandler;
@@ -12,15 +12,216 @@ pub struct NavigationInputHandler;
 impl NavigationInputHandler {
     /// Handle a key event using the new navigation system
     pub async fn handle_key(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
-        // First, try to handle with the new navigation system
-        if app.navigation_manager.handle_key(key, modifiers) {
-            // Update app state based on navigation manager state
-            app.active_pane = app.navigation_manager.get_active_pane();
+        // Handle quit first (always available)
+        if KeyCode::Char('q') == key && modifiers.is_empty() {
+            app.quit();
             return Ok(());
         }
 
-        // Fall back to old system for compatibility
-        Self::handle_legacy_key(key, modifiers, app).await
+        // Handle search key (always available)
+        if let KeyCode::Char(c) = key {
+            if app.config.keymap.search_key == c && modifiers.is_empty() {
+                if !app.show_connection_modal {
+                    app.focus_where_input();
+                }
+                return Ok(());
+            }
+        }
+
+        // Handle modal input (always available when modal is shown)
+        if app.show_connection_modal {
+            if let crate::app::ActiveBlock::ConnectionModal = app.active_block {
+                Self::handle_connection_modal_input(key, app).await?;
+            }
+            return Ok(());
+        }
+
+        // Handle pane-specific input based on input mode
+        match app.active_pane {
+            OldPane::Connections => {
+                Self::handle_connections_input(key, modifiers, app).await?;
+            }
+            OldPane::QueryInput => {
+                Self::handle_query_input(key, modifiers, app).await?;
+            }
+            OldPane::Results => {
+                Self::handle_results_input(key, modifiers, app).await?;
+            }
+            OldPane::SchemaExplorer => {
+                Self::handle_connections_input(key, modifiers, app).await?;
+            }
+            OldPane::CommandLine => {
+                Self::handle_query_input(key, modifiers, app).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle navigation keys through the new system
+    fn handle_navigation_key(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> bool {
+        // Check if this key combination maps to a navigation action
+        if let Some(action) = app
+            .navigation_manager
+            .config()
+            .key_mapping
+            .get_action(key, modifiers)
+        {
+            return Self::handle_navigation_action(action, app);
+        }
+
+        // Delegate to box manager for box-specific handling
+        app.navigation_manager
+            .box_manager_mut()
+            .handle_key(key, modifiers)
+    }
+
+    /// Handle a navigation action
+    fn handle_navigation_action(
+        action: crate::navigation::types::NavigationAction,
+        app: &mut App,
+    ) -> bool {
+        match action {
+            // Movement actions - delegate to app functions
+            crate::navigation::types::NavigationAction::MoveLeft => {
+                match app.active_pane {
+                    OldPane::Results => app.move_cursor_in_results(OldDirection::Left),
+                    OldPane::Connections => {
+                        // In connections pane, left should collapse tree items
+                        if let Err(e) = executor::block_on(
+                            app.handle_tree_action(crate::input::TreeAction::Collapse),
+                        ) {
+                            let _ = crate::logging::error(&format!(
+                                "Error collapsing tree item: {}",
+                                e
+                            ));
+                        }
+                    }
+                    _ => {}
+                }
+                true
+            }
+            crate::navigation::types::NavigationAction::MoveRight => {
+                match app.active_pane {
+                    OldPane::Results => app.move_cursor_in_results(OldDirection::Right),
+                    OldPane::Connections => {
+                        // In connections pane, right should expand tree items
+                        if let Err(e) = executor::block_on(
+                            app.handle_tree_action(crate::input::TreeAction::Expand),
+                        ) {
+                            let _ =
+                                crate::logging::error(&format!("Error expanding tree item: {}", e));
+                        }
+                    }
+                    _ => {}
+                }
+                true
+            }
+            crate::navigation::types::NavigationAction::MoveUp => {
+                match app.active_pane {
+                    OldPane::Results => app.move_cursor_in_results(OldDirection::Up),
+                    OldPane::Connections => app.move_selection_up(),
+                    _ => {}
+                }
+                true
+            }
+            crate::navigation::types::NavigationAction::MoveDown => {
+                match app.active_pane {
+                    OldPane::Results => app.move_cursor_in_results(OldDirection::Down),
+                    OldPane::Connections => app.move_selection_down(),
+                    _ => {}
+                }
+                true
+            }
+            // Pane navigation actions
+            crate::navigation::types::NavigationAction::FocusConnections => {
+                app.active_pane = OldPane::Connections;
+                true
+            }
+            crate::navigation::types::NavigationAction::FocusQueryInput => {
+                app.active_pane = OldPane::QueryInput;
+                true
+            }
+            crate::navigation::types::NavigationAction::FocusResults => {
+                app.active_pane = OldPane::Results;
+                true
+            }
+            crate::navigation::types::NavigationAction::FocusSchemaExplorer => {
+                app.active_pane = OldPane::SchemaExplorer;
+                true
+            }
+            crate::navigation::types::NavigationAction::FocusCommandLine => {
+                app.active_pane = OldPane::CommandLine;
+                true
+            }
+            // Directional pane navigation actions
+            crate::navigation::types::NavigationAction::FocusPaneLeft => {
+                // Left takes us to Connections/TreeView, but not from TreeView itself
+                match app.active_pane {
+                    OldPane::Connections => {
+                        // Left from TreeView does nothing
+                        true
+                    }
+                    _ => {
+                        app.active_pane = OldPane::Connections;
+                        true
+                    }
+                }
+            }
+            crate::navigation::types::NavigationAction::FocusPaneRight => {
+                // Right takes us to the next logical pane, but not from Results
+                match app.active_pane {
+                    OldPane::Results => {
+                        // Right from Data does nothing
+                        true
+                    }
+                    OldPane::Connections => {
+                        app.active_pane = OldPane::Results; // TreeView → Data directly
+                        true
+                    }
+                    OldPane::QueryInput => {
+                        app.active_pane = OldPane::Results;
+                        true
+                    }
+                    OldPane::SchemaExplorer => {
+                        app.active_pane = OldPane::CommandLine;
+                        true
+                    }
+                    OldPane::CommandLine => {
+                        app.active_pane = OldPane::Connections; // Wrap around
+                        true
+                    }
+                }
+            }
+            crate::navigation::types::NavigationAction::FocusPaneUp => {
+                // Up always takes us to Queries
+                app.active_pane = OldPane::QueryInput;
+                true
+            }
+            crate::navigation::types::NavigationAction::FocusPaneDown => {
+                // Down takes us to the next logical pane, but not from Results or TreeView
+                match app.active_pane {
+                    OldPane::Results | OldPane::Connections => {
+                        // Down from Results or TreeView does nothing
+                        true
+                    }
+                    OldPane::QueryInput => {
+                        app.active_pane = OldPane::Results;
+                        true
+                    }
+                    OldPane::SchemaExplorer => {
+                        app.active_pane = OldPane::CommandLine;
+                        true
+                    }
+                    OldPane::CommandLine => {
+                        app.active_pane = OldPane::Connections; // Wrap around
+                        true
+                    }
+                }
+            }
+            // Other actions - delegate to navigation manager
+            _ => app.navigation_manager.handle_action(action),
+        }
     }
 
     /// Handle legacy key events for backward compatibility
@@ -224,6 +425,11 @@ impl NavigationInputHandler {
     ) -> Result<()> {
         match app.input_mode {
             crate::app::InputMode::Normal => {
+                // In normal mode, try the new navigation system first
+                if Self::handle_navigation_key(key, modifiers, app) {
+                    return Ok(());
+                }
+                // Fall back to legacy connections handling
                 Self::handle_connections_input_normal_mode(key, modifiers, app).await
             }
             _ => Ok(()),
@@ -357,9 +563,15 @@ impl NavigationInputHandler {
     ) -> Result<()> {
         match app.input_mode {
             crate::app::InputMode::Normal => {
+                // In normal mode, try the new navigation system first
+                if Self::handle_navigation_key(key, modifiers, app) {
+                    return Ok(());
+                }
+                // Fall back to legacy normal mode handling
                 Self::handle_query_input_normal_mode(key, modifiers, app).await
             }
             crate::app::InputMode::Insert => {
+                // In insert mode, handle text editing directly
                 Self::handle_query_input_insert_mode(key, modifiers, app).await
             }
             _ => Ok(()),
@@ -463,7 +675,7 @@ impl NavigationInputHandler {
 
     async fn handle_query_input_insert_mode(
         key: KeyCode,
-        modifiers: KeyModifiers,
+        _modifiers: KeyModifiers,
         app: &mut App,
     ) -> Result<()> {
         match key {
@@ -500,6 +712,11 @@ impl NavigationInputHandler {
     ) -> Result<()> {
         match app.input_mode {
             crate::app::InputMode::Normal => {
+                // In normal mode, try the new navigation system first
+                if Self::handle_navigation_key(key, modifiers, app) {
+                    return Ok(());
+                }
+                // Fall back to legacy results handling
                 Self::handle_results_input_normal_mode(key, modifiers, app).await
             }
             _ => Ok(()),

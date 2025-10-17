@@ -1,5 +1,7 @@
+use crate::navigation::types::{
+    Direction as NewDirection, NavigationAction as NewNavigationAction, Pane as NewPane,
+};
 use crate::ui::types::{Direction as OldDirection, Pane as OldPane};
-use crate::navigation::types::{Direction as NewDirection, Pane as NewPane, NavigationAction as NewNavigationAction};
 
 /// Migration utilities to convert between old and new navigation types
 pub struct NavigationMigration;
@@ -31,6 +33,8 @@ impl NavigationMigration {
             OldPane::Connections => NewPane::Connections,
             OldPane::QueryInput => NewPane::QueryInput,
             OldPane::Results => NewPane::Results,
+            OldPane::SchemaExplorer => NewPane::SchemaExplorer,
+            OldPane::CommandLine => NewPane::CommandLine,
         }
     }
 
@@ -41,12 +45,14 @@ impl NavigationMigration {
             NewPane::QueryInput => OldPane::QueryInput,
             NewPane::Results => OldPane::Results,
             NewPane::SchemaExplorer => OldPane::Connections, // Map to closest equivalent
-            NewPane::CommandLine => OldPane::QueryInput, // Map to closest equivalent
+            NewPane::CommandLine => OldPane::QueryInput,     // Map to closest equivalent
         }
     }
 
     /// Convert old NavigationAction to new NavigationAction
-    pub fn navigation_action_old_to_new(action: crate::input::NavigationAction) -> NewNavigationAction {
+    pub fn navigation_action_old_to_new(
+        action: crate::input::NavigationAction,
+    ) -> NewNavigationAction {
         match action {
             crate::input::NavigationAction::Direction(direction) => {
                 match Self::direction_old_to_new(direction) {
@@ -56,21 +62,15 @@ impl NavigationMigration {
                     NewDirection::Down => NewNavigationAction::MoveDown,
                 }
             }
-            crate::input::NavigationAction::FocusPane(pane) => {
-                match Self::pane_old_to_new(pane) {
-                    NewPane::Connections => NewNavigationAction::FocusConnections,
-                    NewPane::QueryInput => NewNavigationAction::FocusQueryInput,
-                    NewPane::Results => NewNavigationAction::FocusResults,
-                    NewPane::SchemaExplorer => NewNavigationAction::FocusSchemaExplorer,
-                    NewPane::CommandLine => NewNavigationAction::FocusCommandLine,
-                }
-            }
-            crate::input::NavigationAction::NextTab => {
-                NewNavigationAction::NextBox
-            }
-            crate::input::NavigationAction::PreviousTab => {
-                NewNavigationAction::PreviousBox
-            }
+            crate::input::NavigationAction::FocusPane(pane) => match Self::pane_old_to_new(pane) {
+                NewPane::Connections => NewNavigationAction::FocusConnections,
+                NewPane::QueryInput => NewNavigationAction::FocusQueryInput,
+                NewPane::Results => NewNavigationAction::FocusResults,
+                NewPane::SchemaExplorer => NewNavigationAction::FocusSchemaExplorer,
+                NewPane::CommandLine => NewNavigationAction::FocusCommandLine,
+            },
+            crate::input::NavigationAction::NextTab => NewNavigationAction::NextBox,
+            crate::input::NavigationAction::PreviousTab => NewNavigationAction::PreviousBox,
         }
     }
 }

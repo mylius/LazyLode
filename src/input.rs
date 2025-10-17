@@ -1,5 +1,4 @@
 use crate::ui::types::{Direction, Pane};
-use crate::navigation::types::{NavigationAction as NewNavigationAction, Pane as NewPane, Direction as NewDirection};
 use crossterm::event::{KeyCode, KeyModifiers};
 use serde::{Deserialize, Serialize};
 

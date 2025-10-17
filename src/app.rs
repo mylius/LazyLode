@@ -2,9 +2,9 @@
 use crate::command::CommandBuffer;
 use crate::input::{NavigationAction, TreeAction};
 use crate::logging;
-use crate::ui::types::Direction;
 use crate::navigation::types::Pane;
-use crate::navigation::{NavigationManager, NavigationConfig, NavigationState};
+use crate::navigation::NavigationManager;
+use crate::ui::types::Direction;
 use clipboard::{ClipboardContext, ClipboardProvider};
 
 use crate::config::Config;
@@ -67,41 +67,8 @@ pub enum InputMode {
 pub enum ActiveBlock {
     /// The connections tree block.
     Connections,
-    /// The query input block.
-    Query,
-    /// The query form block (for structured query building).
-    QueryForm,
-    /// The results display block.
-    Results,
     /// The connection modal for adding/editing connections.
     ConnectionModal,
-    /// The schema explorer block.
-    SchemaExplorer,
-    /// The command input block.
-    CommandInput,
-    DeletionConfirmModal,
-}
-
-/// Represents the query mode (free-form SQL or structured form).
-#[derive(PartialEq, Clone)]
-pub enum QueryMode {
-    /// Free-form SQL query mode.
-    FreeForm,
-    /// Structured query form mode.
-    StructuredForm,
-}
-
-/// Represents the structured query form data.
-#[derive(Clone)]
-pub struct QueryForm {
-    /// The table name for the query.
-    pub table: String,
-    /// Conditions for the WHERE clause (column, operator, value).
-    pub conditions: Vec<(String, String, String)>,
-    /// Order by clauses (column, is_ascending).
-    pub order_by: Vec<(String, bool)>,
-    /// Limit for the query results.
-    pub limit: Option<u32>,
 }
 
 /// Represents an item in the connection tree.
@@ -162,7 +129,6 @@ pub struct App {
     pub connection_statuses: HashMap<String, ConnectionStatus>,
     pub connection_form: ConnectionForm,
     pub input_mode: InputMode,
-    pub free_query: String,
     pub result_tabs: Vec<(String, QueryResult, QueryState)>,
     pub config: Config,
     pub status_message: Option<String>,
@@ -201,7 +167,6 @@ impl App {
                 .collect(),
             connection_form: ConnectionForm::default(),
             input_mode: InputMode::Normal,
-            free_query: String::new(),
             result_tabs: Vec::new(),
             config,
             status_message: None,
@@ -439,8 +404,8 @@ impl App {
     pub fn get_current_field_length(&self) -> usize {
         if let Some(state) = self.current_query_state() {
             match self.cursor_position.0 {
-                0 => state.where_clause.len(),
-                1 => state.order_by_clause.len(),
+                0 => state.where_clause.chars().count(),
+                1 => state.order_by_clause.chars().count(),
                 _ => 0,
             }
         } else {
@@ -745,35 +710,6 @@ impl App {
         Ok(())
     }
 
-    /// Edits an existing connection based on the data in `connection_form`.
-    pub fn edit_connection(&mut self) {
-        if let Some(index) = self.connection_form.editing_index {
-            let updated_connection = ConnectionConfig {
-                name: self.connection_form.name.clone(),
-                db_type: self.connection_form.db_type.clone(),
-                host: self.connection_form.host.clone(),
-                port: self.connection_form.port.parse().unwrap_or(5432),
-                username: self.connection_form.username.clone(),
-                password: Some(self.connection_form.password.clone()),
-                database: self.connection_form.database.clone(),
-                ssh_tunnel: None,
-                ssh_tunnel_name: self.connection_form.ssh_tunnel_name.clone(),
-            };
-
-            self.saved_connections[index] = updated_connection.clone();
-            self.config
-                .save_connections(&self.saved_connections)
-                .expect("Failed to save connections");
-
-            // Update the connection tree
-            if let Some(tree_item) = self.connection_tree.get_mut(index) {
-                tree_item.connection_config = updated_connection;
-            }
-
-            self.connection_form = ConnectionForm::default();
-        }
-    }
-
     pub fn delete_connection(&mut self) {
         if let Some(index) = self.selected_connection_idx {
             // Remove the connection from saved_connections
@@ -860,46 +796,6 @@ impl App {
     }
 
     /// Gets the visual index for a given tree item.
-    pub fn get_visual_index_for_tree_item(&self, tree_item: &TreeItem) -> Option<usize> {
-        let mut current_visual_index = 0;
-
-        for (conn_idx, connection) in self.connection_tree.iter().enumerate() {
-            if *tree_item == TreeItem::Connection(conn_idx) {
-                return Some(current_visual_index);
-            }
-            current_visual_index += 1;
-
-            if connection.is_expanded {
-                for (db_idx, database) in connection.databases.iter().enumerate() {
-                    if *tree_item == TreeItem::Database(conn_idx, db_idx) {
-                        return Some(current_visual_index);
-                    }
-                    current_visual_index += 1;
-
-                    if database.is_expanded {
-                        for (schema_idx, schema) in database.schemas.iter().enumerate() {
-                            if *tree_item == TreeItem::Schema(conn_idx, db_idx, schema_idx) {
-                                return Some(current_visual_index);
-                            }
-                            current_visual_index += 1;
-
-                            if schema.is_expanded {
-                                for (table_idx, _) in schema.tables.iter().enumerate() {
-                                    if *tree_item
-                                        == TreeItem::Table(conn_idx, db_idx, schema_idx, table_idx)
-                                    {
-                                        return Some(current_visual_index);
-                                    }
-                                    current_visual_index += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
 
     /// Get current query state
     pub fn current_query_state(&self) -> Option<&QueryState> {
@@ -924,11 +820,25 @@ impl App {
         if let Some(state) = self.current_query_state_mut() {
             match field_idx {
                 0 => {
-                    state.where_clause.insert(cursor_pos, c);
+                    // Convert character position to byte position safely
+                    let byte_pos = state
+                        .where_clause
+                        .char_indices()
+                        .nth(cursor_pos)
+                        .map(|(pos, _)| pos)
+                        .unwrap_or(state.where_clause.len());
+                    state.where_clause.insert(byte_pos, c);
                     self.cursor_position.1 += 1;
                 }
                 1 => {
-                    state.order_by_clause.insert(cursor_pos, c);
+                    // Convert character position to byte position safely
+                    let byte_pos = state
+                        .order_by_clause
+                        .char_indices()
+                        .nth(cursor_pos)
+                        .map(|(pos, _)| pos)
+                        .unwrap_or(state.order_by_clause.len());
+                    state.order_by_clause.insert(byte_pos, c);
                     self.cursor_position.1 += 1;
                 }
                 _ => {}
@@ -946,12 +856,22 @@ impl App {
             if let Some(state) = self.current_query_state_mut() {
                 match field_idx {
                     0 => {
-                        state.where_clause.remove(cursor_pos - 1);
-                        self.cursor_position.1 -= 1;
+                        // Convert character position to byte position safely
+                        if let Some((byte_pos, _)) =
+                            state.where_clause.char_indices().nth(cursor_pos - 1)
+                        {
+                            state.where_clause.remove(byte_pos);
+                            self.cursor_position.1 -= 1;
+                        }
                     }
                     1 => {
-                        state.order_by_clause.remove(cursor_pos - 1);
-                        self.cursor_position.1 -= 1;
+                        // Convert character position to byte position safely
+                        if let Some((byte_pos, _)) =
+                            state.order_by_clause.char_indices().nth(cursor_pos - 1)
+                        {
+                            state.order_by_clause.remove(byte_pos);
+                            self.cursor_position.1 -= 1;
+                        }
                     }
                     _ => {}
                 }
@@ -967,13 +887,17 @@ impl App {
         if let Some(state) = self.current_query_state_mut() {
             match field_idx {
                 0 => {
-                    if cursor_pos < state.where_clause.len() {
-                        state.where_clause.remove(cursor_pos);
+                    // Convert character position to byte position safely
+                    if let Some((byte_pos, _)) = state.where_clause.char_indices().nth(cursor_pos) {
+                        state.where_clause.remove(byte_pos);
                     }
                 }
                 1 => {
-                    if cursor_pos < state.order_by_clause.len() {
-                        state.order_by_clause.remove(cursor_pos);
+                    // Convert character position to byte position safely
+                    if let Some((byte_pos, _)) =
+                        state.order_by_clause.char_indices().nth(cursor_pos)
+                    {
+                        state.order_by_clause.remove(byte_pos);
                     }
                 }
                 _ => {}
@@ -989,15 +913,19 @@ impl App {
         if let Some(state) = self.current_query_state_mut() {
             match field_idx {
                 0 => {
-                    if cursor_pos < state.where_clause.len() {
-                        state.where_clause.remove(cursor_pos);
-                        state.where_clause.insert(cursor_pos, c);
+                    // Convert character position to byte position safely
+                    if let Some((byte_pos, _)) = state.where_clause.char_indices().nth(cursor_pos) {
+                        state.where_clause.remove(byte_pos);
+                        state.where_clause.insert(byte_pos, c);
                     }
                 }
                 1 => {
-                    if cursor_pos < state.order_by_clause.len() {
-                        state.order_by_clause.remove(cursor_pos);
-                        state.order_by_clause.insert(cursor_pos, c);
+                    // Convert character position to byte position safely
+                    if let Some((byte_pos, _)) =
+                        state.order_by_clause.char_indices().nth(cursor_pos)
+                    {
+                        state.order_by_clause.remove(byte_pos);
+                        state.order_by_clause.insert(byte_pos, c);
                     }
                 }
                 _ => {}
@@ -1433,16 +1361,6 @@ impl App {
     }
 
     /// Update the page size
-    pub async fn set_page_size(&mut self, size: u32) -> Result<()> {
-        if let Some(state) = self.current_query_state_mut() {
-            if state.page_size != size {
-                state.page_size = size;
-                state.current_page = 1; // Reset to first page when changing page size
-                self.refresh_results().await?;
-            }
-        }
-        Ok(())
-    }
 
     pub fn toggle_row_deletion_mark(&mut self) {
         if let Some(result_tab_index) = self.selected_result_tab_index {
