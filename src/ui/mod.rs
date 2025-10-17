@@ -559,12 +559,28 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
             .skip(start_row)
             .take(visible_capacity)
             .map(|(row_idx, row)| {
+                let is_marked = query_state.rows_marked_for_deletion.contains(&row_idx);
+                let is_selected = app.active_pane == Pane::Results
+                    && row_idx == app.cursor_position.1;
+
+                let base_bg = if is_marked {
+                    Color::Rgb(139, 0, 0) // Dark red for marked rows
+                } else if is_selected {
+                    app.config.theme.accent_color()
+                } else if (row_idx + start_row) % 2 == 0 {
+                    app.config.theme.row_even_bg_color()
+                } else {
+                    app.config.theme.row_odd_bg_color()
+                };
+
                 let mut row_cells = vec![Cell::from(format!(
                     "{:>width$}",
                     row_idx + 1,
                     width = line_num_width as usize
                 ))
-                .style(Style::default().fg(app.config.theme.text_color()))];
+                .style(Style::default()
+                    .fg(app.config.theme.text_color())
+                    .bg(base_bg))];
 
                 // Add the data cells
                 row_cells.extend(row.iter().enumerate().map(|(col_idx, cell)| {
@@ -573,16 +589,19 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
                         && col_idx == app.cursor_position.0;
                     let is_marked = query_state.rows_marked_for_deletion.contains(&row_idx);
 
-                    let style =
-                        Style::default()
-                            .fg(app.config.theme.text_color())
-                            .bg(if is_marked {
-                                Color::Rgb(139, 0, 0) // Dark red for marked rows
-                            } else if is_selected {
-                                app.config.theme.accent_color()
-                            } else {
-                                app.config.theme.surface0_color()
-                            });
+                    let base_bg = if is_marked {
+                        Color::Rgb(139, 0, 0) // Dark red for marked rows
+                    } else if is_selected {
+                        app.config.theme.accent_color()
+                    } else if (row_idx + start_row) % 2 == 0 {
+                        app.config.theme.row_even_bg_color()
+                    } else {
+                        app.config.theme.row_odd_bg_color()
+                    };
+
+                    let style = Style::default()
+                        .fg(app.config.theme.text_color())
+                        .bg(base_bg);
 
                     Cell::from(cell.as_str()).style(style)
                 }));

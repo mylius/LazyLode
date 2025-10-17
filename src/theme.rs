@@ -31,6 +31,10 @@ pub struct Theme {
     // Header colors
     pub header_bg: Option<[u8; 3]>,
     pub header_fg: Option<[u8; 3]>,
+
+    // Row colors
+    pub row_even_bg: Option<[u8; 3]>,
+    pub row_odd_bg: Option<[u8; 3]>,
 }
 
 impl Theme {
@@ -54,6 +58,8 @@ impl Theme {
             green: None,
             header_bg: None,
             header_fg: None,
+            row_even_bg: None,
+            row_odd_bg: None,
         }
     }
 
@@ -107,5 +113,13 @@ impl Theme {
 
     pub fn header_fg_color(&self) -> Color {
         self.color(self.header_fg, Color::White)
+    }
+
+    pub fn row_even_bg_color(&self) -> Color {
+        self.bg_color(self.row_even_bg)
+    }
+
+    pub fn row_odd_bg_color(&self) -> Color {
+        self.bg_color(self.row_odd_bg)
     }
 }

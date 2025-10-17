@@ -24,3 +24,7 @@ green = [158, 206, 106]
 # Header colors
 header_bg = [26, 27, 38]
 header_fg = [122, 162, 247]
+
+# Row colors
+row_even_bg = [20, 20, 23]
+row_odd_bg = [26, 27, 38]
