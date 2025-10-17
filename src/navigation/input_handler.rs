@@ -60,6 +60,12 @@ impl NavigationInputHandler {
             OldPane::Results => {
                 Self::handle_results_input(key, modifiers, app).await?;
             }
+            OldPane::SchemaExplorer => {
+                Self::handle_connections_input(key, modifiers, app).await?;
+            }
+            OldPane::CommandLine => {
+                Self::handle_query_input(key, modifiers, app).await?;
+            }
         }
 
         Ok(())
