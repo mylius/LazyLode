@@ -32,37 +32,97 @@ The new navigation system provides:
 
 ### Navigation Configuration
 
+The new system uses a flexible key mapping interface where each action can be triggered by any key or key combination:
+
 ```toml
 [navigation]
 default_editing_mode = "Vim"  # or "Cursor"
 
-# Pane hotkeys (no modifier needed)
-[navigation.pane_hotkeys]
-c = "Connections"
-q = "QueryInput"
-r = "Results"
-s = "SchemaExplorer"
-":" = "CommandLine"
+# Key mapping configuration - map any key combination to any action
+[navigation.key_mapping]
+# Pane navigation
+"c" = "FocusConnections"
+"q" = "FocusQueryInput"
+"r" = "FocusResults"
+"s" = "FocusSchemaExplorer"
+":" = "FocusCommandLine"
 
-# Box hotkeys within panes
-[navigation.box_hotkeys]
-t = "TextInput"
-d = "DataTable"
-v = "TreeView"
-l = "ListView"
+# Box navigation
+"t" = "FocusTextInput"
+"d" = "FocusDataTable"
+"v" = "FocusTreeView"
+"l" = "FocusListView"
+
+# Movement
+"h" = "MoveLeft"
+"j" = "MoveDown"
+"k" = "MoveUp"
+"l" = "MoveRight"
+"Left" = "MoveLeft"
+"Right" = "MoveRight"
+"Up" = "MoveUp"
+"Down" = "MoveDown"
+
+# Vim modes
+"i" = "EnterInsertMode"
+"a" = "EnterInsertMode"
+"v" = "EnterVisualMode"
+":" = "EnterCommandMode"
+"Esc" = "EnterNormalMode"
+
+# Edit mode switching
+"e" = "EnterEditMode"
+"Ctrl+v" = "ToggleViewEditMode"
+
+# Text editing
+"Backspace" = "DeleteCharBefore"
+"Delete" = "DeleteChar"
+"x" = "DeleteChar"
+"r" = "ReplaceChar"
+
+# Copy/paste
+"Ctrl+c" = "Copy"
+"Ctrl+v" = "Paste"
+"Ctrl+x" = "Cut"
+
+# Special actions
+"q" = "Quit"
+"Enter" = "Confirm"
+"Esc" = "Cancel"
+"/" = "Search"
 
 # Vim configuration
 [navigation.vim_config]
-insert_key = 'i'
-visual_key = 'v'
-command_key = ':'
-exit_key = "Esc"
 show_mode_indicator = true
 
 # Cursor configuration
 [navigation.cursor_config]
 show_cursor = true
 cursor_style = "Bar"  # "Block", "Bar", or "Underline"
+```
+
+### Advanced Key Mapping
+
+You can use any key combination including modifiers:
+
+```toml
+[navigation.key_mapping]
+# Function keys
+"F1" = "FocusConnections"
+"F2" = "FocusQueryInput"
+
+# Ctrl combinations
+"Ctrl+1" = "FocusConnections"
+"Ctrl+2" = "FocusQueryInput"
+"Ctrl+t" = "FocusTextInput"
+
+# Alt combinations
+"Alt+h" = "MoveLeft"
+"Alt+j" = "MoveDown"
+
+# Shift combinations
+"Shift+Tab" = "PreviousBox"
+"Ctrl+Shift+:" = "FocusCommandLine"
 ```
 
 ## Usage
@@ -99,29 +159,60 @@ cursor_style = "Bar"  # "Block", "Bar", or "Underline"
 
 ## Key Bindings
 
-### Default Pane Hotkeys
+### Default Key Mappings
+
+The system comes with sensible defaults, but all key mappings are configurable:
+
+#### Pane Navigation
 - `c`: Focus Connections pane
-- `q`: Focus QueryInput pane
+- `q`: Focus QueryInput pane  
 - `r`: Focus Results pane
 - `s`: Focus SchemaExplorer pane
 - `:`: Focus CommandLine pane
 
-### Default Box Hotkeys
+#### Box Navigation
 - `t`: Focus TextInput box
 - `d`: Focus DataTable box
 - `v`: Focus TreeView box
 - `l`: Focus ListView box
 
-### Navigation Keys
+#### Movement
 - `h`/`←`: Move left
 - `j`/`↓`: Move down
 - `k`/`↑`: Move up
 - `l`/`→`: Move right
 
-### Mode Keys
+#### Mode Switching
 - `e`: Enter edit mode
-- `v`: Toggle view/edit mode
+- `Ctrl+v`: Toggle view/edit mode
 - `Esc`: Exit edit mode
+
+#### Vim Modes
+- `i`: Enter insert mode
+- `a`: Enter insert mode (after cursor)
+- `v`: Enter visual mode
+- `:`: Enter command mode
+- `Esc`: Enter normal mode
+
+### Custom Key Combinations
+
+You can map any action to any key combination:
+
+```toml
+[navigation.key_mapping]
+# Custom pane navigation
+"Ctrl+1" = "FocusConnections"
+"F1" = "FocusConnections"
+
+# Custom movement
+"Ctrl+Left" = "MoveToPreviousWord"
+"Ctrl+Right" = "MoveToNextWord"
+
+# Custom editing
+"Ctrl+s" = "Save"
+"Ctrl+z" = "Undo"
+"Ctrl+y" = "Redo"
+```
 
 ## Migration
 

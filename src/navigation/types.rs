@@ -2,6 +2,8 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub use crate::navigation::key_mapping::{KeyCombination, KeyMapping, NavigationAction};
+
 /// Represents the different editing modes available
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EditingMode {
@@ -64,38 +66,13 @@ pub enum Direction {
     Down,
 }
 
-/// Represents a navigation action
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NavigationAction {
-    /// Move in a direction
-    Move(Direction),
-    /// Focus a specific pane
-    FocusPane(Pane),
-    /// Focus a specific box within current pane
-    FocusBox(Box),
-    /// Switch to next pane
-    NextPane,
-    /// Switch to previous pane
-    PreviousPane,
-    /// Switch to next box within current pane
-    NextBox,
-    /// Switch to previous box within current pane
-    PreviousBox,
-    /// Enter edit mode for current box
-    EnterEditMode,
-    /// Exit edit mode
-    ExitEditMode,
-    /// Toggle between view and edit mode
-    ToggleMode,
-}
+// NavigationAction is now defined in key_mapping.rs
 
 /// Configuration for navigation hotkeys
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NavigationConfig {
-    /// Hotkey mappings for pane focusing
-    pub pane_hotkeys: HashMap<char, Pane>,
-    /// Hotkey mappings for box focusing within panes
-    pub box_hotkeys: HashMap<char, Box>,
+    /// Key mapping configuration
+    pub key_mapping: KeyMapping,
     /// Default editing mode
     pub default_editing_mode: EditingMode,
     /// Vim mode configuration
@@ -107,14 +84,6 @@ pub struct NavigationConfig {
 /// Vim-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VimConfig {
-    /// Key to enter insert mode
-    pub insert_key: char,
-    /// Key to enter visual mode
-    pub visual_key: char,
-    /// Key to enter command mode
-    pub command_key: char,
-    /// Key to exit current mode (usually Escape)
-    pub exit_key: KeyCode,
     /// Whether to show mode indicator
     pub show_mode_indicator: bool,
 }
@@ -138,22 +107,8 @@ pub enum CursorStyle {
 
 impl Default for NavigationConfig {
     fn default() -> Self {
-        let mut pane_hotkeys = HashMap::new();
-        pane_hotkeys.insert('c', Pane::Connections);
-        pane_hotkeys.insert('q', Pane::QueryInput);
-        pane_hotkeys.insert('r', Pane::Results);
-        pane_hotkeys.insert('s', Pane::SchemaExplorer);
-        pane_hotkeys.insert(':', Pane::CommandLine);
-
-        let mut box_hotkeys = HashMap::new();
-        box_hotkeys.insert('t', Box::TextInput);
-        box_hotkeys.insert('d', Box::DataTable);
-        box_hotkeys.insert('v', Box::TreeView);
-        box_hotkeys.insert('l', Box::ListView);
-
         Self {
-            pane_hotkeys,
-            box_hotkeys,
+            key_mapping: KeyMapping::default(),
             default_editing_mode: EditingMode::Vim,
             vim_config: VimConfig::default(),
             cursor_config: CursorConfig::default(),
@@ -164,10 +119,6 @@ impl Default for NavigationConfig {
 impl Default for VimConfig {
     fn default() -> Self {
         Self {
-            insert_key: 'i',
-            visual_key: 'v',
-            command_key: ':',
-            exit_key: KeyCode::Esc,
             show_mode_indicator: true,
         }
     }

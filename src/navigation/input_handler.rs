@@ -11,31 +11,6 @@ pub struct NavigationInputHandler;
 impl NavigationInputHandler {
     /// Handle a key event using the new navigation system
     pub async fn handle_key(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
-        // Handle special navigation keys first
-        if modifiers.is_empty() {
-            match key {
-                KeyCode::Char('e') => {
-                    // Enter edit mode
-                    if app.navigation_manager.handle_action(crate::navigation::types::NavigationAction::EnterEditMode) {
-                        return Ok(());
-                    }
-                }
-                KeyCode::Char('v') => {
-                    // Toggle view/edit mode
-                    if app.navigation_manager.handle_action(crate::navigation::types::NavigationAction::ToggleMode) {
-                        return Ok(());
-                    }
-                }
-                KeyCode::Esc => {
-                    // Exit edit mode
-                    if app.navigation_manager.handle_action(crate::navigation::types::NavigationAction::ExitEditMode) {
-                        return Ok(());
-                    }
-                }
-                _ => {}
-            }
-        }
-
         // First, try to handle with the new navigation system
         if app.navigation_manager.handle_key(key, modifiers) {
             return Ok(());

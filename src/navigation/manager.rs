@@ -1,6 +1,7 @@
 use crate::navigation::types::{
-    Pane, Box, Direction, NavigationAction, NavigationConfig, NavigationState, EditingMode, VimMode
+    Pane, Box, Direction, NavigationConfig, NavigationState, EditingMode, VimMode
 };
+use crate::navigation::key_mapping::{KeyCombination, KeyMapping, NavigationAction};
 use crate::navigation::box_manager::BoxManager;
 use crossterm::event::{KeyCode, KeyModifiers};
 
@@ -49,14 +50,21 @@ impl NavigationManager {
     /// Handle a navigation action
     pub fn handle_action(&mut self, action: NavigationAction) -> bool {
         match action {
-            NavigationAction::Move(direction) => {
-                self.handle_directional_move(direction)
+            // Pane navigation
+            NavigationAction::FocusConnections => {
+                self.focus_pane(Pane::Connections)
             }
-            NavigationAction::FocusPane(pane) => {
-                self.focus_pane(pane)
+            NavigationAction::FocusQueryInput => {
+                self.focus_pane(Pane::QueryInput)
             }
-            NavigationAction::FocusBox(box_type) => {
-                self.focus_box(box_type)
+            NavigationAction::FocusResults => {
+                self.focus_pane(Pane::Results)
+            }
+            NavigationAction::FocusSchemaExplorer => {
+                self.focus_pane(Pane::SchemaExplorer)
+            }
+            NavigationAction::FocusCommandLine => {
+                self.focus_pane(Pane::CommandLine)
             }
             NavigationAction::NextPane => {
                 self.next_pane()
@@ -64,11 +72,80 @@ impl NavigationManager {
             NavigationAction::PreviousPane => {
                 self.previous_pane()
             }
+            
+            // Box navigation
+            NavigationAction::FocusTextInput => {
+                self.focus_box(Box::TextInput)
+            }
+            NavigationAction::FocusDataTable => {
+                self.focus_box(Box::DataTable)
+            }
+            NavigationAction::FocusTreeView => {
+                self.focus_box(Box::TreeView)
+            }
+            NavigationAction::FocusListView => {
+                self.focus_box(Box::ListView)
+            }
+            NavigationAction::FocusModal => {
+                self.focus_box(Box::Modal)
+            }
             NavigationAction::NextBox => {
                 self.next_box()
             }
             NavigationAction::PreviousBox => {
                 self.previous_box()
+            }
+            
+            // Movement
+            NavigationAction::MoveLeft => {
+                self.handle_directional_move(Direction::Left)
+            }
+            NavigationAction::MoveRight => {
+                self.handle_directional_move(Direction::Right)
+            }
+            NavigationAction::MoveUp => {
+                self.handle_directional_move(Direction::Up)
+            }
+            NavigationAction::MoveDown => {
+                self.handle_directional_move(Direction::Down)
+            }
+            NavigationAction::MoveToStart => {
+                // Handle move to start of line/field
+                self.box_manager.vim_editor_mut().move_to_line_start();
+                true
+            }
+            NavigationAction::MoveToEnd => {
+                // Handle move to end of line/field
+                self.box_manager.vim_editor_mut().move_to_line_end();
+                true
+            }
+            NavigationAction::MoveToNextWord => {
+                // Handle move to next word
+                self.box_manager.vim_editor_mut().move_to_next_word();
+                true
+            }
+            NavigationAction::MoveToPreviousWord => {
+                // Handle move to previous word
+                self.box_manager.vim_editor_mut().move_to_previous_word();
+                true
+            }
+            
+            // Mode switching
+            NavigationAction::EnterInsertMode => {
+                self.box_manager.vim_editor_mut().mode = VimMode::Insert;
+                true
+            }
+            NavigationAction::EnterVisualMode => {
+                self.box_manager.vim_editor_mut().mode = VimMode::Visual;
+                true
+            }
+            NavigationAction::EnterCommandMode => {
+                self.box_manager.vim_editor_mut().mode = VimMode::Command;
+                true
+            }
+            NavigationAction::EnterNormalMode => {
+                self.box_manager.vim_editor_mut().mode = VimMode::Normal;
+                true
             }
             NavigationAction::EnterEditMode => {
                 self.enter_edit_mode()
@@ -76,54 +153,83 @@ impl NavigationManager {
             NavigationAction::ExitEditMode => {
                 self.exit_edit_mode()
             }
-            NavigationAction::ToggleMode => {
+            NavigationAction::ToggleViewEditMode => {
                 self.toggle_mode()
+            }
+            
+            // Text editing
+            NavigationAction::InsertChar => {
+                // This would be handled by the box manager when a character is typed
+                false
+            }
+            NavigationAction::DeleteChar => {
+                self.box_manager.vim_editor_mut().delete_char_at_cursor();
+                true
+            }
+            NavigationAction::DeleteCharBefore => {
+                self.box_manager.vim_editor_mut().delete_char_before_cursor();
+                true
+            }
+            NavigationAction::DeleteLine => {
+                self.box_manager.vim_editor_mut().delete_line();
+                true
+            }
+            NavigationAction::ReplaceChar => {
+                // This would be handled by the box manager when in replace mode
+                false
+            }
+            NavigationAction::Undo => {
+                // TODO: Implement undo functionality
+                false
+            }
+            NavigationAction::Redo => {
+                // TODO: Implement redo functionality
+                false
+            }
+            
+            // Special actions
+            NavigationAction::Quit => {
+                // This would be handled by the main application
+                false
+            }
+            NavigationAction::Confirm => {
+                // This would be handled by the specific context
+                false
+            }
+            NavigationAction::Cancel => {
+                // This would be handled by the specific context
+                false
+            }
+            NavigationAction::Search => {
+                // This would be handled by the main application
+                false
+            }
+            NavigationAction::Copy => {
+                // This would be handled by the main application
+                false
+            }
+            NavigationAction::Paste => {
+                // This would be handled by the main application
+                false
+            }
+            NavigationAction::Cut => {
+                // This would be handled by the main application
+                false
             }
         }
     }
 
     /// Handle a key event and return whether it was consumed
     pub fn handle_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> bool {
-        // First check for pane hotkeys
-        if let KeyCode::Char(c) = key {
-            if let Some(&pane) = self.config.pane_hotkeys.get(&c) {
-                if modifiers == KeyModifiers::empty() {
-                    self.focus_pane(pane);
-                    return true;
-                }
-            }
-        }
-
-        // Check for box hotkeys within current pane
-        if let KeyCode::Char(c) = key {
-            if let Some(&box_type) = self.config.box_hotkeys.get(&c) {
-                if modifiers == KeyModifiers::empty() {
-                    self.focus_box(box_type);
-                    return true;
-                }
-            }
-        }
-
-        // Handle directional navigation
-        if let Some(direction) = self.key_to_direction(key) {
-            if modifiers == KeyModifiers::empty() {
-                return self.handle_directional_move(direction);
-            }
+        // Check if this key combination maps to a navigation action
+        if let Some(action) = self.config.key_mapping.get_action(key, modifiers) {
+            return self.handle_action(action);
         }
 
         // Delegate to box manager for box-specific handling
         self.box_manager.handle_key(key, modifiers)
     }
 
-    fn key_to_direction(&self, key: KeyCode) -> Option<Direction> {
-        match key {
-            KeyCode::Char('h') | KeyCode::Left => Some(Direction::Left),
-            KeyCode::Char('j') | KeyCode::Down => Some(Direction::Down),
-            KeyCode::Char('k') | KeyCode::Up => Some(Direction::Up),
-            KeyCode::Char('l') | KeyCode::Right => Some(Direction::Right),
-            _ => None,
-        }
-    }
 
     fn handle_directional_move(&mut self, direction: Direction) -> bool {
         // If we have an active box, let it handle the movement
