@@ -1455,7 +1455,7 @@ impl App {
 
     /// Previews a theme without switching to it
     pub fn preview_theme(&mut self, theme_name: &str) -> anyhow::Result<()> {
-        if let Ok(theme) = self.config.load_theme(theme_name) {
+        if let Ok(theme) = crate::config::Config::load_theme(theme_name) {
             self.config.theme = theme;
             self.config.theme_name = theme_name.to_string();
             Ok(())
@@ -1466,7 +1466,7 @@ impl App {
 
     /// Restores the saved theme (cancels preview)
     pub fn restore_theme(&mut self) -> anyhow::Result<()> {
-        self.config.load_theme(&self.config.theme_name)
+        crate::config::Config::load_theme(&self.config.theme_name)
             .map(|theme| {
                 self.config.theme = theme;
             })
