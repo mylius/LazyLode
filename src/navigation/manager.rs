@@ -430,6 +430,11 @@ impl NavigationManager {
         }
     }
 
+    /// Get the current active pane
+    pub fn get_active_pane(&self) -> Pane {
+        self.state.active_pane
+    }
+
     /// Get the current pane and box information
     pub fn get_navigation_info(&self) -> String {
         let pane_name = match self.state.active_pane {

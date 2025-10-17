@@ -13,6 +13,8 @@ impl NavigationInputHandler {
     pub async fn handle_key(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
         // First, try to handle with the new navigation system
         if app.navigation_manager.handle_key(key, modifiers) {
+            // Update app state based on navigation manager state
+            app.active_pane = app.navigation_manager.get_active_pane();
             return Ok(());
         }
 
