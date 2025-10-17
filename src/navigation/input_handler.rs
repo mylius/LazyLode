@@ -1,7 +1,8 @@
 use crate::app::App;
 use crate::input::{Action, KeyConfig, NavigationAction as OldNavigationAction, TreeAction};
 use crate::navigation::{NavigationManager, NavigationMigration};
-use crate::ui::types::{Direction as OldDirection, Pane as OldPane};
+use crate::ui::types::Direction as OldDirection;
+use crate::navigation::types::Pane as OldPane;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyModifiers};
 

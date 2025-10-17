@@ -2,7 +2,8 @@
 use crate::command::CommandBuffer;
 use crate::input::{NavigationAction, TreeAction};
 use crate::logging;
-use crate::ui::types::{Direction, Pane};
+use crate::ui::types::Direction;
+use crate::navigation::types::Pane;
 use crate::navigation::{NavigationManager, NavigationConfig, NavigationState};
 use clipboard::{ClipboardContext, ClipboardProvider};
 
