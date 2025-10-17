@@ -563,14 +563,25 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
                 let is_selected = app.active_pane == Pane::Results
                     && row_idx == app.cursor_position.1;
 
+                let row_bg = if (row_idx + start_row) % 2 == 0 {
+                    app.config.theme.row_even_bg_color()
+                } else {
+                    app.config.theme.row_odd_bg_color()
+                };
+
+                let col_bg = app.config.theme.col_even_bg_color(); // Line number is always column 0 (even)
+
                 let base_bg = if is_marked {
                     Color::Rgb(139, 0, 0) // Dark red for marked rows
                 } else if is_selected {
                     app.config.theme.accent_color()
-                } else if (row_idx + start_row) % 2 == 0 {
-                    app.config.theme.row_even_bg_color()
                 } else {
-                    app.config.theme.row_odd_bg_color()
+                    // Use row color as primary for line numbers
+                    if row_bg == Color::Reset {
+                        app.config.theme.surface0_color()
+                    } else {
+                        row_bg
+                    }
                 };
 
                 let mut row_cells = vec![Cell::from(format!(
@@ -589,14 +600,34 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
                         && col_idx == app.cursor_position.0;
                     let is_marked = query_state.rows_marked_for_deletion.contains(&row_idx);
 
+                    let row_bg = if (row_idx + start_row) % 2 == 0 {
+                        app.config.theme.row_even_bg_color()
+                    } else {
+                        app.config.theme.row_odd_bg_color()
+                    };
+
+                    let col_bg = if col_idx % 2 == 0 {
+                        app.config.theme.col_even_bg_color()
+                    } else {
+                        app.config.theme.col_odd_bg_color()
+                    };
+
                     let base_bg = if is_marked {
                         Color::Rgb(139, 0, 0) // Dark red for marked rows
                     } else if is_selected {
                         app.config.theme.accent_color()
-                    } else if (row_idx + start_row) % 2 == 0 {
-                        app.config.theme.row_even_bg_color()
                     } else {
-                        app.config.theme.row_odd_bg_color()
+                        // Blend row and column colors - use the darker one
+                        if row_bg == Color::Reset && col_bg == Color::Reset {
+                            app.config.theme.surface0_color()
+                        } else if row_bg == Color::Reset {
+                            col_bg
+                        } else if col_bg == Color::Reset {
+                            row_bg
+                        } else {
+                            // Use row color as primary, column as subtle variation
+                            row_bg
+                        }
                     };
 
                     let style = Style::default()
