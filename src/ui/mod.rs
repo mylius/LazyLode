@@ -50,16 +50,15 @@ pub fn render(frame: &mut Frame, app: &App) {
 
 /// Renders the status bar at the top of the UI.
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let mode = match app.input_mode {
-        InputMode::Normal => "NORMAL",
-        InputMode::Insert => "INSERT",
-        InputMode::Command => "COMMAND",
-    };
+    // Use new navigation system mode indicator
+    let mode = app.navigation_manager.get_mode_indicator();
+    let nav_info = app.navigation_manager.get_navigation_info();
 
-    // Create status text, including current mode and status message
+    // Create status text, including current mode, navigation info, and status message
     let status = Line::from(format!(
-        "{} | {}",
+        "{} | {} | {}",
         mode,
+        nav_info,
         app.status_message.as_deref().unwrap_or("")
     ));
 
@@ -105,8 +104,15 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
         ])
         .split(area);
 
+    // Show navigation info if this is the active pane
+    let nav_info = if app.active_pane == Pane::Connections {
+        format!(" [{}]", app.navigation_manager.get_navigation_info())
+    } else {
+        String::new()
+    };
+
     // Render header paragraph
-    let header = Line::from("Connections (press 'a' to add)");
+    let header = Line::from(format!("Connections (press 'a' to add){}", nav_info));
     let mut block = Block::default().borders(Borders::ALL).style(
         Style::default()
             .fg(app.config.theme.text_color())
@@ -117,6 +123,8 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     if app.active_pane == Pane::Connections {
         block = block.border_style(Style::default().fg(app.config.theme.accent_color()));
     }
+
+    // nav_info computed above
 
     frame.render_widget(Paragraph::new(header).block(block), chunks[0]);
 
@@ -180,7 +188,7 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
             ))
             .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
 
-            for (db_idx, database) in connection.databases.iter().enumerate() {
+            for (_db_idx, database) in connection.databases.iter().enumerate() {
                 let db_expanded = if database.is_expanded { "▼" } else { "▶" };
 
                 let db_style = if app.highlight_selected_item(visible_index) {
@@ -201,7 +209,7 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
 
                 // Render schemas if database is expanded
                 if database.is_expanded {
-                    for (schema_idx, schema) in database.schemas.iter().enumerate() {
+                    for (_schema_idx, schema) in database.schemas.iter().enumerate() {
                         let schema_expanded = if schema.is_expanded { "▼" } else { "▶" }; // Expansion symbol for schema
                         let schema_style = if app.highlight_selected_item(visible_index) {
                             // Style for schema item, highlight if selected
@@ -274,8 +282,16 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
 
     let query_state = app.current_query_state();
 
+    // Show navigation info for query input
+    let query_nav_info = if app.active_pane == Pane::QueryInput {
+        format!(" [{}]", app.navigation_manager.get_navigation_info())
+    } else {
+        String::new()
+    };
+
     // WHERE clause
-    let mut where_block = Block::default().title("WHERE").borders(Borders::ALL);
+    let where_title = format!("WHERE{}", query_nav_info);
+    let mut where_block = Block::default().title(where_title).borders(Borders::ALL);
 
     // ORDER BY clause
     let mut order_by_block = Block::default().title("ORDER BY").borders(Borders::ALL);
@@ -425,7 +441,14 @@ fn render_result_tabs(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Renders the results table.
 fn render_results(frame: &mut Frame, app: &App, area: Rect) {
-    let mut block = Block::default().title("Results").borders(Borders::ALL);
+    let results_nav_info = if app.active_pane == Pane::Results {
+        format!(" [{}]", app.navigation_manager.get_navigation_info())
+    } else {
+        String::new()
+    };
+
+    let results_title = format!("Results{}", results_nav_info);
+    let mut block = Block::default().title(results_title).borders(Borders::ALL);
     if app.active_pane == Pane::Results {
         block = block.border_style(Style::default().fg(app.config.theme.accent_color()));
     }

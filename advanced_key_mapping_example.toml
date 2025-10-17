@@ -1,0 +1,149 @@
+# Advanced Key Mapping Configuration Example
+# This shows how to configure custom key combinations for different actions
+
+theme = "catppuccin_mocha"
+
+[database]
+default_port_postgres = 5432
+default_port_mongodb = 27017
+
+# Navigation configuration with custom key mappings
+[navigation]
+default_editing_mode = "Vim"
+
+# Custom key mapping configuration
+[navigation.key_mapping]
+# Pane navigation with custom keys
+"Ctrl+1" = "FocusConnections"
+"Ctrl+2" = "FocusQueryInput"
+"Ctrl+3" = "FocusResults"
+"Ctrl+4" = "FocusSchemaExplorer"
+"Ctrl+Shift+:" = "FocusCommandLine"
+
+# Directional pane navigation
+"Shift+h" = "FocusPaneLeft"
+"Shift+l" = "FocusPaneRight"
+"Shift+k" = "FocusPaneUp"
+"Shift+j" = "FocusPaneDown"
+
+# Alternative directional navigation with Ctrl+Arrow
+"Ctrl+Left" = "FocusPaneLeft"
+"Ctrl+Right" = "FocusPaneRight"
+"Ctrl+Up" = "FocusPaneUp"
+"Ctrl+Down" = "FocusPaneDown"
+
+# Alternative directional navigation with Alt+Arrow
+"Alt+Left" = "FocusPaneLeft"
+"Alt+Right" = "FocusPaneRight"
+"Alt+Up" = "FocusPaneUp"
+"Alt+Down" = "FocusPaneDown"
+
+# Alternative pane navigation with function keys
+"F1" = "FocusConnections"
+"F2" = "FocusQueryInput"
+"F3" = "FocusResults"
+"F4" = "FocusSchemaExplorer"
+"F5" = "FocusCommandLine"
+
+# Box navigation with custom combinations
+"Ctrl+t" = "FocusTextInput"
+"Ctrl+d" = "FocusDataTable"
+"Ctrl+v" = "FocusTreeView"
+"Ctrl+l" = "FocusListView"
+
+# Movement with custom keys
+"h" = "MoveLeft"
+"j" = "MoveDown"
+"k" = "MoveUp"
+"l" = "MoveRight"
+"Left" = "MoveLeft"
+"Right" = "MoveRight"
+"Up" = "MoveUp"
+"Down" = "MoveDown"
+"Home" = "MoveToStart"
+"End" = "MoveToEnd"
+"Ctrl+Left" = "MoveToPreviousWord"
+"Ctrl+Right" = "MoveToNextWord"
+
+# Vim modes with custom keys
+"i" = "EnterInsertMode"
+"a" = "EnterInsertMode"
+"o" = "EnterInsertMode"
+"O" = "EnterInsertMode"
+"v" = "EnterVisualMode"
+"V" = "EnterVisualMode"
+"Ctrl+v" = "EnterVisualMode"
+":" = "EnterCommandMode"
+"Esc" = "EnterNormalMode"
+
+# Edit mode switching with custom keys
+"e" = "EnterEditMode"
+"Ctrl+e" = "ToggleViewEditMode"
+"Tab" = "NextBox"
+"Shift+Tab" = "PreviousBox"
+
+# Text editing with custom combinations
+"Backspace" = "DeleteCharBefore"
+"Delete" = "DeleteChar"
+"x" = "DeleteChar"
+"X" = "DeleteCharBefore"
+"r" = "ReplaceChar"
+"dd" = "DeleteLine"  # Note: This would need special handling for double-key sequences
+"u" = "Undo"
+"Ctrl+r" = "Redo"
+
+# Copy/paste with custom keys
+"Ctrl+c" = "Copy"
+"Ctrl+v" = "Paste"
+"Ctrl+x" = "Cut"
+"y" = "Copy"  # Vim-style copy
+"p" = "Paste"  # Vim-style paste
+
+# Special actions with custom keys
+"q" = "Quit"
+"Enter" = "Confirm"
+"Esc" = "Cancel"
+"/" = "Search"
+"Ctrl+f" = "Search"
+"F12" = "Quit"
+
+# Vim configuration
+[navigation.vim_config]
+show_mode_indicator = true
+
+# Cursor configuration
+[navigation.cursor_config]
+show_cursor = true
+cursor_style = "Bar"
+
+# Keymap configuration (legacy - for backward compatibility)
+[keymap]
+left_key = 'h'
+right_key = 'l'
+up_key = 'k'
+down_key = 'j'
+connections_key = 'c'
+query_key = 'q'
+data_key = 'd'
+sort_key = 's'
+next_tab_key = 'n'
+prev_tab_key = 'p'
+first_page_key = 'g'
+last_page_key = 'G'
+next_page_key = '.'
+prev_page_key = ','
+search_key = '/'
+edit_key = 'e'
+delete_key = 'd'
+copy_key = 'y'
+pane_modifier = "Shift"
+follow_fk_key = 'l'
+
+# SSH tunnels
+[[ssh_tunnels]]
+name = "example-tunnel"
+host = "example.com"
+port = 22
+username = "user"
+password = "password"
+private_key_path = "/path/to/key"

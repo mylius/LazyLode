@@ -2,7 +2,9 @@
 use crate::command::CommandBuffer;
 use crate::input::{NavigationAction, TreeAction};
 use crate::logging;
-use crate::ui::types::{Direction, Pane};
+use crate::ui::types::Direction;
+use crate::navigation::types::Pane;
+use crate::navigation::{NavigationManager, NavigationConfig, NavigationState};
 use clipboard::{ClipboardContext, ClipboardProvider};
 
 use crate::config::Config;
@@ -177,12 +179,15 @@ pub struct App {
     pub clipboard: String,
     pub last_key_was_d: bool,
     pub awaiting_replace: bool,
+    /// New navigation system
+    pub navigation_manager: NavigationManager,
 }
 
 impl App {
     /// Constructs a new `App` instance with default settings and loads configurations.
     pub fn new() -> Self {
         let config = Config::new();
+        let navigation_config = config.navigation.clone();
         let mut app = Self {
             should_quit: false,
             active_block: ActiveBlock::Connections,
@@ -213,6 +218,7 @@ impl App {
             clipboard: String::new(),
             last_key_was_d: false,
             awaiting_replace: false,
+            navigation_manager: NavigationManager::new(navigation_config),
         };
 
         app.load_connections();
