@@ -50,6 +50,7 @@ pub enum Action {
     CopyCell,
     CopyRow,
     FollowForeignKey,
+    EnterCommand,
 }
 
 /// Defines the key configuration for different actions.
@@ -299,6 +300,7 @@ impl KeyConfig {
                         c if c == self.down_key => Some(Action::Navigation(
                             NavigationAction::Direction(Direction::Down),
                         )),
+                        ':' => Some(Action::EnterCommand),
                         _ => None,
                     }
                 }

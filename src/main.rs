@@ -162,15 +162,22 @@ async fn run_app_tick<B: ratatui::backend::Backend>(
                     handle_connection_modal_input(key, app).await?;
                 }
             } else {
-                match app.active_pane {
-                    Pane::Connections => {
-                        handle_connections_input(key, app).await?;
+                match app.input_mode {
+                    InputMode::Command => {
+                        handle_command_input(key, app).await?;
                     }
-                    Pane::QueryInput => {
-                        handle_query_input(key, app).await?;
-                    }
-                    Pane::Results => {
-                        handle_results_input(key, app).await?;
+                    _ => {
+                        match app.active_pane {
+                            Pane::Connections => {
+                                handle_connections_input(key, app).await?;
+                            }
+                            Pane::QueryInput => {
+                                handle_query_input(key, app).await?;
+                            }
+                            Pane::Results => {
+                                handle_results_input(key, app).await?;
+                            }
+                        }
                     }
                 }
             }
@@ -722,8 +729,52 @@ async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Resul
                     app.status_message = Some("Deletion cancelled".to_string());
                 }
             }
+            Action::EnterCommand => {
+                app.input_mode = InputMode::Command;
+                app.active_block = ActiveBlock::CommandInput;
+            }
             _ => {}
         }
+    }
+    Ok(())
+}
+
+async fn handle_command_input(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Esc => {
+            app.input_mode = InputMode::Normal;
+            app.active_block = ActiveBlock::Connections;
+            app.command_input.clear();
+        }
+        KeyCode::Enter => {
+            let command = app.command_input.clone();
+            app.command_input.clear();
+            app.input_mode = InputMode::Normal;
+            app.active_block = ActiveBlock::Connections;
+            
+            // Process the command
+            if command == "themes" {
+                if let Err(e) = app.list_themes() {
+                    let _ = logging::error(&format!("Error listing themes: {}", e));
+                }
+            } else if command.starts_with("theme ") {
+                let theme_name = command.strip_prefix("theme ").unwrap_or("");
+                if !theme_name.is_empty() {
+                    if let Err(e) = app.switch_theme(theme_name) {
+                        let _ = logging::error(&format!("Error switching theme: {}", e));
+                    }
+                }
+            } else {
+                app.status_message = Some(format!("Unknown command: {}", command));
+            }
+        }
+        KeyCode::Backspace => {
+            app.command_input.pop();
+        }
+        KeyCode::Char(c) => {
+            app.command_input.push(c);
+        }
+        _ => {}
     }
     Ok(())
 }
