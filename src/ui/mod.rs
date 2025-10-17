@@ -104,6 +104,13 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
         ])
         .split(area);
 
+    // Show navigation info if this is the active pane
+    let nav_info = if app.active_pane == Pane::Connections {
+        format!(" [{}]", app.navigation_manager.get_navigation_info())
+    } else {
+        String::new()
+    };
+
     // Render header paragraph
     let header = Line::from(format!("Connections (press 'a' to add){}", nav_info));
     let mut block = Block::default().borders(Borders::ALL).style(
@@ -280,8 +287,16 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
 
     let query_state = app.current_query_state();
 
+    // Show navigation info for query input
+    let query_nav_info = if app.active_pane == Pane::QueryInput {
+        format!(" [{}]", app.navigation_manager.get_navigation_info())
+    } else {
+        String::new()
+    };
+
     // WHERE clause
-    let mut where_block = Block::default().title(&format!("WHERE{}", query_nav_info)).borders(Borders::ALL);
+    let where_title = format!("WHERE{}", query_nav_info);
+    let mut where_block = Block::default().title(where_title).borders(Borders::ALL);
 
     // ORDER BY clause
     let mut order_by_block = Block::default().title("ORDER BY").borders(Borders::ALL);
@@ -300,13 +315,6 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
             _ => {}
         }
     }
-    
-    // Show navigation info for query input
-    let query_nav_info = if app.active_pane == Pane::QueryInput {
-        format!(" [{}]", app.navigation_manager.get_navigation_info())
-    } else {
-        String::new()
-    };
 
     // Render WHERE clause with cursor when inserting in WHERE
     let where_content = if let Some(state) = query_state {
@@ -444,7 +452,8 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
         String::new()
     };
     
-    let mut block = Block::default().title(&format!("Results{}", results_nav_info)).borders(Borders::ALL);
+    let results_title = format!("Results{}", results_nav_info);
+    let mut block = Block::default().title(results_title).borders(Borders::ALL);
     if app.active_pane == Pane::Results {
         block = block.border_style(Style::default().fg(app.config.theme.accent_color()));
     }

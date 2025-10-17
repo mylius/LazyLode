@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 /// Represents a key combination (key + modifiers)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KeyCombination {
     pub key: KeyCode,
     pub modifiers: KeyModifiers,
@@ -86,7 +86,7 @@ impl fmt::Display for KeyCombination {
 }
 
 /// Key mapping configuration that maps key combinations to actions
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct KeyMapping {
     /// Maps key combinations to navigation actions
     pub mappings: HashMap<KeyCombination, NavigationAction>,

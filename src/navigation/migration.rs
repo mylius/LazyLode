@@ -49,10 +49,21 @@ impl NavigationMigration {
     pub fn navigation_action_old_to_new(action: crate::input::NavigationAction) -> NewNavigationAction {
         match action {
             crate::input::NavigationAction::Direction(direction) => {
-                NewNavigationAction::Move(Self::direction_old_to_new(direction))
+                match Self::direction_old_to_new(direction) {
+                    NewDirection::Left => NewNavigationAction::MoveLeft,
+                    NewDirection::Right => NewNavigationAction::MoveRight,
+                    NewDirection::Up => NewNavigationAction::MoveUp,
+                    NewDirection::Down => NewNavigationAction::MoveDown,
+                }
             }
             crate::input::NavigationAction::FocusPane(pane) => {
-                NewNavigationAction::FocusPane(Self::pane_old_to_new(pane))
+                match Self::pane_old_to_new(pane) {
+                    NewPane::Connections => NewNavigationAction::FocusConnections,
+                    NewPane::QueryInput => NewNavigationAction::FocusQueryInput,
+                    NewPane::Results => NewNavigationAction::FocusResults,
+                    NewPane::SchemaExplorer => NewNavigationAction::FocusSchemaExplorer,
+                    NewPane::CommandLine => NewNavigationAction::FocusCommandLine,
+                }
             }
             crate::input::NavigationAction::NextTab => {
                 NewNavigationAction::NextBox

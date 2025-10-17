@@ -186,6 +186,7 @@ impl App {
     /// Constructs a new `App` instance with default settings and loads configurations.
     pub fn new() -> Self {
         let config = Config::new();
+        let navigation_config = config.navigation.clone();
         let mut app = Self {
             should_quit: false,
             active_block: ActiveBlock::Connections,
@@ -216,7 +217,7 @@ impl App {
             clipboard: String::new(),
             last_key_was_d: false,
             awaiting_replace: false,
-            navigation_manager: NavigationManager::new(config.navigation.clone()),
+            navigation_manager: NavigationManager::new(navigation_config),
         };
 
         app.load_connections();

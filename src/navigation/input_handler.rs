@@ -29,11 +29,13 @@ impl NavigationInputHandler {
         }
 
         // Handle search key
-        if app.config.keymap.search_key == key.to_char().unwrap_or('\0') && modifiers.is_empty() {
-            if !app.show_connection_modal {
-                app.focus_where_input();
+        if let KeyCode::Char(c) = key {
+            if app.config.keymap.search_key == c && modifiers.is_empty() {
+                if !app.show_connection_modal {
+                    app.focus_where_input();
+                }
+                return Ok(());
             }
-            return Ok(());
         }
 
         // Handle modal input
@@ -47,13 +49,13 @@ impl NavigationInputHandler {
         // Handle pane-specific input
         match app.active_pane {
             OldPane::Connections => {
-                Self::handle_connections_input(key, app).await?;
+                Self::handle_connections_input(key, modifiers, app).await?;
             }
             OldPane::QueryInput => {
-                Self::handle_query_input(key, app).await?;
+                Self::handle_query_input(key, modifiers, app).await?;
             }
             OldPane::Results => {
-                Self::handle_results_input(key, app).await?;
+                Self::handle_results_input(key, modifiers, app).await?;
             }
         }
 
@@ -202,7 +204,7 @@ impl NavigationInputHandler {
         Ok(())
     }
 
-    async fn handle_connections_input(key: KeyCode, app: &mut App) -> Result<()> {
+    async fn handle_connections_input(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
         match app.input_mode {
             crate::app::InputMode::Normal => Self::handle_connections_input_normal_mode(key, app).await,
             _ => Ok(()),
@@ -317,7 +319,7 @@ impl NavigationInputHandler {
         Ok(())
     }
 
-    async fn handle_query_input(key: KeyCode, app: &mut App) -> Result<()> {
+    async fn handle_query_input(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
         match app.input_mode {
             crate::app::InputMode::Normal => Self::handle_query_input_normal_mode(key, app).await,
             crate::app::InputMode::Insert => Self::handle_query_input_insert_mode(key, app).await,
@@ -438,7 +440,7 @@ impl NavigationInputHandler {
         Ok(())
     }
 
-    async fn handle_results_input(key: KeyCode, app: &mut App) -> Result<()> {
+    async fn handle_results_input(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
         match app.input_mode {
             crate::app::InputMode::Normal => Self::handle_results_input_normal_mode(key, app).await,
             _ => Ok(()),
