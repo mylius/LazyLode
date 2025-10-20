@@ -514,7 +514,7 @@ impl App {
 
             let result = db.fetch_table_data(&schema, &table, &params).await?;
 
-            let tab_name = format!("{}.{}", schema, table);
+            let tab_name = format!("{}:{}.{}", conn_name, schema, table);
             let tab_index = self
                 .result_tabs
                 .iter()
@@ -1611,7 +1611,13 @@ impl App {
                                             .await
                                         {
                                             Ok(result) => {
-                                                let tab_name = format!("{}.{}", schema.name, table);
+                                                let tab_name = format!(
+                                                    "{}:{}:{}.{}",
+                                                    connection.connection_config.name,
+                                                    database.name,
+                                                    schema.name,
+                                                    table
+                                                );
                                                 let tab_index = self
                                                     .result_tabs
                                                     .iter()
