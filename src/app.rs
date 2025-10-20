@@ -23,6 +23,21 @@ pub enum PrefetchResult {
     Failed(String, String), // connection_name, error_message
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputMode {
+    Normal,
+    Insert,
+    Command,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActiveBlock {
+    Main,
+    Connections,
+    ConnectionModal,
+}
+
+
 /// Represents the form data for creating or editing a database connection.
 #[derive(Default, Clone)]
 pub struct ConnectionForm {
@@ -58,25 +73,6 @@ pub struct QueryState {
     pub rows_marked_for_deletion: HashSet<usize>,
 }
 
-/// Represents the input mode of the application.
-#[derive(PartialEq, Clone)]
-pub enum InputMode {
-    /// Normal mode for navigation and command execution.
-    Normal,
-    /// Insert mode for text input in forms and queries.
-    Insert,
-    /// Command mode for entering commands.
-    Command,
-}
-
-/// Represents the currently active block or UI element.
-#[derive(PartialEq, Clone)]
-pub enum ActiveBlock {
-    /// The connections tree block.
-    Connections,
-    /// The connection modal for adding/editing connections.
-    ConnectionModal,
-}
 
 /// Represents an item in the connection tree.
 #[derive(PartialEq, Debug, Clone, Copy)] // Add PartialEq here
@@ -157,6 +153,7 @@ pub struct App {
     pub navigation_manager: NavigationManager,
     pub command_suggestions: Vec<String>,
     pub selected_suggestion: Option<usize>,
+    pub query: String,
 }
 
 impl App {
@@ -197,6 +194,12 @@ impl App {
             navigation_manager: NavigationManager::new(navigation_config),
             command_suggestions: Vec::new(),
             selected_suggestion: None,
+            connection_form: ConnectionForm::default(),
+            show_connection_modal: false,
+            active_block: ActiveBlock::Main,
+            input_mode: InputMode::Normal,
+            query: String::new(),
+            command_buffer: CommandBuffer::new(),
         };
 
         app.load_connections();
@@ -232,7 +235,7 @@ impl App {
                 .collect(),
             connection_form: ConnectionForm::default(),
             input_mode: InputMode::Normal,
-            free_query: String::new(),
+            query: String::new(),
             result_tabs: Vec::new(),
             config,
             status_message: None,
@@ -252,6 +255,7 @@ impl App {
             awaiting_replace: false,
             command_suggestions: Vec::new(),
             selected_suggestion: None,
+            navigation_manager: NavigationManager::new(config.navigation.clone()),
         };
 
         app.load_connections();
@@ -2122,6 +2126,164 @@ impl App {
     }
 
     pub fn get_current_theme_name(&self) -> &str {
-        &self.config.theme.name
+        "default" // Placeholder - implement based on your theme system
+    }
+
+    pub fn toggle_connection_modal(&mut self) {
+        self.show_connection_modal = !self.show_connection_modal;
+        if self.show_connection_modal {
+            self.active_block = crate::app::ActiveBlock::ConnectionModal;
+        } else {
+            self.active_block = crate::app::ActiveBlock::Main;
+        }
+    }
+
+    pub fn save_connection(&mut self) {
+        // Implementation for saving connection
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn delete_connection(&mut self) {
+        if let Some(index) = self.selected_connection_idx {
+            if index < self.saved_connections.len() {
+                self.saved_connections.remove(index);
+                self.config.save_connections(&self.saved_connections)
+                    .expect("Failed to save connections");
+                
+                // Update connection tree
+                if index < self.connection_tree.len() {
+                    self.connection_tree.remove(index);
+                }
+                
+                // Adjust selected index
+                if self.selected_connection_idx.unwrap_or(0) >= self.saved_connections.len() {
+                    self.selected_connection_idx = if self.saved_connections.is_empty() {
+                        None
+                    } else {
+                        Some(self.saved_connections.len() - 1)
+                    };
+                }
+            }
+        }
+    }
+
+    pub fn edit_connection(&mut self) {
+        if let Some(index) = self.selected_connection_idx {
+            if let Some(connection) = self.saved_connections.get(index) {
+                self.connection_form.name = connection.name.clone();
+                self.connection_form.db_type = connection.db_type.clone();
+                self.connection_form.host = connection.host.clone();
+                self.connection_form.port = connection.port.to_string();
+                self.connection_form.username = connection.username.clone();
+                self.connection_form.password = connection.password.clone().unwrap_or_default();
+                self.connection_form.database = connection.database.clone().unwrap_or_default();
+                self.connection_form.editing_index = Some(index);
+                self.toggle_connection_modal();
+            }
+        }
+    }
+
+    pub fn connect_to_database(&mut self, index: usize) {
+        // Implementation for connecting to database
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn run_query(&mut self) {
+        // Implementation for running query
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn clear_query(&mut self) {
+        self.query.clear();
+    }
+
+    pub fn save_query(&mut self) {
+        // Implementation for saving query
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn load_query(&mut self) {
+        // Implementation for loading query
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn show_help(&mut self) {
+        // Implementation for showing help
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn copy_cell(&mut self) {
+        // Implementation for copying cell
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn delete_selected_rows(&mut self) {
+        // Implementation for deleting selected rows
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn undo_deletion(&mut self) {
+        // Implementation for undoing deletion
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn move_cursor_down(&mut self) {
+        // Implementation for moving cursor down
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn move_cursor_up(&mut self) {
+        // Implementation for moving cursor up
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn move_cursor_left(&mut self) {
+        // Implementation for moving cursor left
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn move_cursor_right(&mut self) {
+        // Implementation for moving cursor right
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn page_down(&mut self) {
+        // Implementation for page down
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn page_up(&mut self) {
+        // Implementation for page up
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn move_cursor_to_start(&mut self) {
+        // Implementation for moving cursor to start
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn move_cursor_to_end(&mut self) {
+        // Implementation for moving cursor to end
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn execute_command(&mut self) {
+        // Implementation for executing command
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn command_history_up(&mut self) {
+        // Implementation for command history up
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn command_history_down(&mut self) {
+        // Implementation for command history down
+        // This is a placeholder - implement based on your needs
+    }
+
+    pub fn cycle_suggestions(&mut self) {
+        // Implementation for cycling suggestions
+        // This is a placeholder - implement based on your needs
     }
 }
