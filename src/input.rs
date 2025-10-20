@@ -50,6 +50,9 @@ pub enum Action {
     CopyCell,
     CopyRow,
     FollowForeignKey,
+    EnterCommand,
+    SelectPreviousSuggestion,
+    SelectNextSuggestion,
 }
 
 /// Defines the key configuration for different actions.
@@ -299,18 +302,15 @@ impl KeyConfig {
                         c if c == self.down_key => Some(Action::Navigation(
                             NavigationAction::Direction(Direction::Down),
                         )),
+                        ':' => Some(Action::EnterCommand),
                         _ => None,
                     }
                 }
             }
             KeyCode::Left => Some(Action::TreeAction(TreeAction::Collapse)),
             KeyCode::Right => Some(Action::TreeAction(TreeAction::Expand)),
-            KeyCode::Up => Some(Action::Navigation(NavigationAction::Direction(
-                Direction::Up,
-            ))),
-            KeyCode::Down => Some(Action::Navigation(NavigationAction::Direction(
-                Direction::Down,
-            ))),
+            KeyCode::Up => Some(Action::SelectPreviousSuggestion),
+            KeyCode::Down => Some(Action::SelectNextSuggestion),
             _ => None,
         }
     }

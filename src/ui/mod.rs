@@ -15,6 +15,9 @@ use crate::logging;
 mod modal;
 pub mod types;
 
+#[cfg(test)]
+mod tab_shortening_tests;
+
 pub use modal::{render_connection_modal, render_deletion_modal};
 pub use types::Pane;
 
@@ -54,12 +57,40 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let mode = app.navigation_manager.get_mode_indicator();
     let nav_info = app.navigation_manager.get_navigation_info();
 
-    // Create status text, including current mode, navigation info, and status message
+    // Create status text, including current mode, navigation info, theme, and status message
+    let theme_info = if app.input_mode == InputMode::Command && app.selected_suggestion.is_some() {
+        if let Some(suggestion) = app.get_selected_suggestion() {
+            if suggestion.starts_with("theme ") {
+                let theme_name = suggestion.strip_prefix("theme ").unwrap_or("");
+                format!(" | Theme: {} (preview)", theme_name)
+            } else {
+                format!(" | Theme: {}", app.get_current_theme_name())
+            }
+        } else {
+            format!(" | Theme: {}", app.get_current_theme_name())
+        }
+    } else {
+        format!(" | Theme: {}", app.get_current_theme_name())
+    };
+
+    // Add current tab info if a tab is selected
+    let tab_info = if let Some(tab_index) = app.selected_result_tab_index {
+        if let Some((tab_name, _, _)) = app.result_tabs.get(tab_index) {
+            format!(" | Tab: {}", tab_name)
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
     let status = Line::from(format!(
-        "{} | {} | {}",
+        "{} | {} | {}{}{}",
         mode,
         nav_info,
-        app.status_message.as_deref().unwrap_or("")
+        app.status_message.as_deref().unwrap_or(""),
+        tab_info,
+        theme_info
     ));
 
     frame.render_widget(
@@ -262,9 +293,15 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_main_panel(frame: &mut Frame, app: &App, area: Rect) {
+    // Set background color for the main panel area
+    frame.render_widget(
+        Block::default().style(Style::default().bg(app.config.theme.base_color())),
+        area,
+    );
+
     let chunks = Layout::default()
         .direction(LayoutDirection::Vertical)
-        .constraints([Constraint::Length(8), Constraint::Min(1)])
+        .constraints([Constraint::Length(6), Constraint::Min(1)])
         .split(area);
 
     render_query_input(frame, app, chunks[0]);
@@ -291,10 +328,26 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
 
     // WHERE clause
     let where_title = format!("WHERE{}", query_nav_info);
-    let mut where_block = Block::default().title(where_title).borders(Borders::ALL);
+    let mut where_block = Block::default()
+        .title(where_title)
+        .borders(Borders::ALL)
+        .title_style(
+            Style::default()
+                .fg(app.config.theme.header_fg_color())
+                .bg(app.config.theme.header_bg_color()),
+        )
+        .style(Style::default().bg(app.config.theme.surface0_color()));
 
     // ORDER BY clause
-    let mut order_by_block = Block::default().title("ORDER BY").borders(Borders::ALL);
+    let mut order_by_block = Block::default()
+        .title("ORDER BY")
+        .borders(Borders::ALL)
+        .title_style(
+            Style::default()
+                .fg(app.config.theme.header_fg_color())
+                .bg(app.config.theme.header_bg_color()),
+        )
+        .style(Style::default().bg(app.config.theme.surface0_color()));
 
     // If query input is active pane, highlight the current field
     if app.active_pane == Pane::QueryInput {
@@ -333,10 +386,21 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
         String::new()
     };
 
+    let where_style = if app.active_pane == Pane::QueryInput
+        && app.cursor_position.0 == 0
+        && app.input_mode == InputMode::Insert
+    {
+        Style::default()
+            .fg(app.config.theme.text_color())
+            .bg(app.config.theme.cursor_color())
+    } else {
+        Style::default().fg(app.config.theme.text_color())
+    };
+
     frame.render_widget(
         Paragraph::new(where_content)
             .block(where_block)
-            .style(Style::default().fg(app.config.theme.text_color())),
+            .style(where_style),
         chunks[0],
     );
 
@@ -362,10 +426,21 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
         String::new()
     };
 
+    let order_by_style = if app.active_pane == Pane::QueryInput
+        && app.cursor_position.0 == 1
+        && app.input_mode == InputMode::Insert
+    {
+        Style::default()
+            .fg(app.config.theme.text_color())
+            .bg(app.config.theme.cursor_color())
+    } else {
+        Style::default().fg(app.config.theme.text_color())
+    };
+
     frame.render_widget(
         Paragraph::new(order_by_content)
             .block(order_by_block)
-            .style(Style::default().fg(app.config.theme.text_color())),
+            .style(order_by_style),
         chunks[1],
     );
 
@@ -427,10 +502,32 @@ fn render_result_tabs(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
+    // Calculate available width for tabs (accounting for borders and dividers)
+    let available_width = area.width.saturating_sub(4); // Account for borders
+    let tab_count = app.result_tabs.len();
+    let divider_width = 3; // " | " = 3 characters
+    let total_divider_width = if tab_count > 1 {
+        (tab_count - 1) * divider_width
+    } else {
+        0
+    };
+    let max_tab_width = if tab_count > 0 {
+        (available_width.saturating_sub(total_divider_width as u16) / tab_count as u16).max(8)
+    } else {
+        8
+    };
+
+    // Create tab titles with color coding
     let tab_titles: Vec<Line> = app
         .result_tabs
         .iter()
-        .map(|(name, _, _)| Line::from(name.clone()))
+        .enumerate()
+        .map(|(index, (name, _, _))| {
+            let shortened_name =
+                shorten_tab_name_intelligent(name, &app.result_tabs, max_tab_width as usize);
+            let color = get_tab_color(name, index);
+            Line::from(Span::styled(shortened_name, Style::default().fg(color)))
+        })
         .collect();
 
     let tabs = Tabs::new(tab_titles)
@@ -460,7 +557,14 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let results_title = format!("Results{}", results_nav_info);
-    let mut block = Block::default().title(results_title).borders(Borders::ALL);
+    let mut block = Block::default()
+        .title(results_title)
+        .borders(Borders::ALL)
+        .title_style(
+            Style::default()
+                .fg(app.config.theme.header_fg_color())
+                .bg(app.config.theme.header_bg_color()),
+        );
     if app.active_pane == Pane::Results {
         block = block.border_style(Style::default().fg(app.config.theme.accent_color()));
     }
@@ -557,12 +661,30 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
             .skip(start_row)
             .take(visible_capacity)
             .map(|(row_idx, row)| {
+                let is_marked = query_state.rows_marked_for_deletion.contains(&row_idx);
+                let is_selected =
+                    app.active_pane == Pane::Results && row_idx == app.cursor_position.1;
+
+                let base_bg = if is_marked {
+                    Color::Rgb(139, 0, 0) // Dark red for marked rows
+                } else if is_selected {
+                    app.config.theme.accent_color()
+                } else if (row_idx + start_row) % 2 == 0 {
+                    app.config.theme.row_even_bg_color()
+                } else {
+                    app.config.theme.row_odd_bg_color()
+                };
+
                 let mut row_cells = vec![Cell::from(format!(
                     "{:>width$}",
                     row_idx + 1,
                     width = line_num_width as usize
                 ))
-                .style(Style::default().fg(app.config.theme.text_color()))];
+                .style(
+                    Style::default()
+                        .fg(app.config.theme.text_color())
+                        .bg(base_bg),
+                )];
 
                 // Add the data cells
                 row_cells.extend(row.iter().enumerate().map(|(col_idx, cell)| {
@@ -571,16 +693,19 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
                         && col_idx == app.cursor_position.0;
                     let is_marked = query_state.rows_marked_for_deletion.contains(&row_idx);
 
-                    let style =
-                        Style::default()
-                            .fg(app.config.theme.text_color())
-                            .bg(if is_marked {
-                                Color::Rgb(139, 0, 0) // Dark red for marked rows
-                            } else if is_selected {
-                                app.config.theme.accent_color()
-                            } else {
-                                app.config.theme.surface0_color()
-                            });
+                    let base_bg = if is_marked {
+                        Color::Rgb(139, 0, 0) // Dark red for marked rows
+                    } else if is_selected {
+                        app.config.theme.accent_color()
+                    } else if (row_idx + start_row) % 2 == 0 {
+                        app.config.theme.row_even_bg_color()
+                    } else {
+                        app.config.theme.row_odd_bg_color()
+                    };
+
+                    let style = Style::default()
+                        .fg(app.config.theme.text_color())
+                        .bg(base_bg);
 
                     Cell::from(cell.as_str()).style(style)
                 }));
@@ -601,6 +726,11 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .title("Results")
                 .borders(Borders::ALL)
+                .title_style(
+                    Style::default()
+                        .fg(app.config.theme.header_fg_color())
+                        .bg(app.config.theme.header_bg_color()),
+                )
                 .style(
                     Style::default()
                         .fg(app.config.theme.text_color())
@@ -612,7 +742,15 @@ fn render_results(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_pagination(frame: &mut Frame, app: &App, area: Rect) {
-    let mut block = Block::default().title("Pagination").borders(Borders::ALL);
+    let mut block = Block::default()
+        .title("Pagination")
+        .borders(Borders::ALL)
+        .title_style(
+            Style::default()
+                .fg(app.config.theme.header_fg_color())
+                .bg(app.config.theme.header_bg_color()),
+        )
+        .style(Style::default().bg(app.config.theme.surface0_color()));
     if app.active_pane == Pane::Results {
         block = block.border_style(Style::default().fg(app.config.theme.accent_color()));
     }
@@ -643,28 +781,397 @@ fn render_pagination(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Renders the command bar at the bottom of the UI.
 fn render_command_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let command = if app.input_mode == InputMode::Command {
-        format!(":{}", app.command_input) // Show command prefix in command mode
-    } else {
-        String::new() // Empty in normal/insert mode
-    };
-
-    frame.render_widget(
-        Paragraph::new(command).style(
-            Style::default()
-                .fg(app.config.theme.text_color())
-                .bg(app.config.theme.surface0_color()),
-        ), // Style with theme colors
-        area,
-    );
-
-    // Place the terminal cursor at the end of the command input when in Command mode
     if app.input_mode == InputMode::Command {
+        // Split area into command input and suggestions
+        let chunks = Layout::default()
+            .direction(LayoutDirection::Vertical)
+            .constraints([
+                Constraint::Length(1), // Command input
+                Constraint::Length(5), // Suggestions (show more)
+            ])
+            .split(area);
+
+        let command = format!(":{}", app.command_input);
+
+        // Render command input
+        frame.render_widget(
+            Paragraph::new(command).style(
+                Style::default()
+                    .fg(app.config.theme.text_color())
+                    .bg(app.config.theme.surface0_color()),
+            ),
+            chunks[0],
+        );
+
+        // Render suggestions
+        if !app.command_suggestions.is_empty() {
+            let suggestion_items: Vec<ListItem> = app
+                .command_suggestions
+                .iter()
+                .enumerate()
+                .map(|(idx, suggestion)| {
+                    let style = if Some(idx) == app.selected_suggestion {
+                        Style::default()
+                            .fg(app.config.theme.base_color())
+                            .bg(app.config.theme.accent_color())
+                    } else {
+                        Style::default()
+                            .fg(app.config.theme.text_color())
+                            .bg(app.config.theme.surface1_color())
+                    };
+                    ListItem::new(suggestion.as_str()).style(style)
+                })
+                .collect();
+
+            let suggestions_list = List::new(suggestion_items)
+                .style(Style::default().bg(app.config.theme.surface1_color()));
+
+            frame.render_widget(suggestions_list, chunks[1]);
+        }
+
+        // Place the terminal cursor at the end of the command input
         let cursor_x = area.x + 1 + app.command_input.len() as u16; // account for ':'
         let cursor_y = area.y;
         frame.set_cursor_position(ratatui::layout::Position {
             x: cursor_x,
             y: cursor_y,
         });
+    } else {
+        // Empty command bar in normal mode
+        frame.render_widget(
+            Paragraph::new("").style(
+                Style::default()
+                    .fg(app.config.theme.text_color())
+                    .bg(app.config.theme.surface0_color()),
+            ),
+            area,
+        );
     }
+}
+
+/// Intelligently shortens tab names to fit within the available width.
+/// Analyzes all open tabs to determine what distinguishing information to preserve.
+pub fn shorten_tab_name_intelligent(
+    full_name: &str,
+    all_tabs: &[(String, crate::database::QueryResult, crate::app::QueryState)],
+    max_width: usize,
+) -> String {
+    if full_name.len() <= max_width {
+        return full_name.to_string();
+    }
+
+    // Parse the full name: "connection:database:schema.table" or "connection:schema.table"
+    let parts: Vec<&str> = full_name.split(':').collect();
+
+    // Local helpers removed to avoid lifetime issues; inline splits below
+
+    let others = all_tabs
+        .iter()
+        .map(|(n, _, _)| n.as_str())
+        .filter(|&n| n != full_name)
+        .collect::<Vec<_>>();
+
+    if parts.len() == 2 {
+        let connection = parts[0];
+        let schema_table = parts[1];
+        let (schema, table) = if let Some(dot_pos) = schema_table.rfind('.') {
+            (&schema_table[..dot_pos], &schema_table[dot_pos + 1..])
+        } else {
+            ("", schema_table)
+        };
+
+        let needs_connection = others.iter().any(|&n| {
+            let ps: Vec<&str> = n.split(':').collect();
+            ps.len() == 2 && ps[1] == schema_table
+        });
+
+        let needs_schema = others.iter().any(|&n| {
+            let ps: Vec<&str> = n.split(':').collect();
+            match ps.len() {
+                2 => ps[1]
+                    .rfind('.')
+                    .map(|p| {
+                        let oschema = &ps[1][..p];
+                        let otable = &ps[1][p + 1..];
+                        otable == table && oschema != schema
+                    })
+                    .unwrap_or(false),
+                3 => ps[2]
+                    .rfind('.')
+                    .map(|p| {
+                        let oschema = &ps[2][..p];
+                        let otable = &ps[2][p + 1..];
+                        otable == table && oschema != schema
+                    })
+                    .unwrap_or(false),
+                _ => false,
+            }
+        });
+
+        let mut candidates: Vec<String> = Vec::new();
+        if !needs_connection && !needs_schema {
+            if table.len() <= max_width {
+                return table.to_string();
+            }
+        }
+        if needs_schema && schema_table.len() <= max_width {
+            return schema_table.to_string();
+        }
+
+        let conn_abbrev = abbreviate_name(connection, 3);
+        candidates.push(format!("{}:{}", conn_abbrev, schema_table));
+        candidates.push(format!("{}:{}", conn_abbrev, table));
+
+        if let Some(best) = candidates.into_iter().find(|c| c.len() <= max_width) {
+            return best;
+        }
+
+        if max_width > 3 {
+            return format!("{}...", &schema_table[..max_width.saturating_sub(3)]);
+        }
+    } else if parts.len() == 3 {
+        let connection = parts[0];
+        let database = parts[1];
+        let schema_table = parts[2];
+        let (schema, table) = if let Some(dot_pos) = schema_table.rfind('.') {
+            (&schema_table[..dot_pos], &schema_table[dot_pos + 1..])
+        } else {
+            ("", schema_table)
+        };
+
+        let needs_connection = others.iter().any(|&n| {
+            let ps: Vec<&str> = n.split(':').collect();
+            ps.len() == 3 && ps[1] == database && ps[2] == schema_table
+        });
+        let needs_database = others.iter().any(|&n| {
+            let ps: Vec<&str> = n.split(':').collect();
+            (ps.len() == 2 && ps[1] == schema_table)
+                || (ps.len() == 3 && ps[2] == schema_table && ps[1] != database)
+        });
+        let needs_schema = others.iter().any(|&n| {
+            let ps: Vec<&str> = n.split(':').collect();
+            match ps.len() {
+                3 => ps[2]
+                    .rfind('.')
+                    .map(|p| {
+                        let oschema = &ps[2][..p];
+                        let otable = &ps[2][p + 1..];
+                        otable == table && oschema != schema
+                    })
+                    .unwrap_or(false),
+                2 => ps[1]
+                    .rfind('.')
+                    .map(|p| {
+                        let oschema = &ps[1][..p];
+                        let otable = &ps[1][p + 1..];
+                        otable == table && oschema != schema
+                    })
+                    .unwrap_or(false),
+                _ => false,
+            }
+        });
+        let has_different_schemas = others.iter().any(|&n| {
+            let ps: Vec<&str> = n.split(':').collect();
+            if ps.len() == 3 && ps[0] == connection && ps[1] == database {
+                ps[2]
+                    .rfind('.')
+                    .map(|p| &ps[2][..p] != schema)
+                    .unwrap_or(false)
+            } else {
+                false
+            }
+        });
+        let has_multiple_databases_same_schema = others.iter().any(|&n| {
+            let ps: Vec<&str> = n.split(':').collect();
+            if ps.len() == 3 && ps[0] == connection && ps[1] != database {
+                ps[2]
+                    .rfind('.')
+                    .map(|p| &ps[2][..p] == schema)
+                    .unwrap_or(false)
+            } else {
+                false
+            }
+        });
+
+        let mut candidates: Vec<String> = Vec::new();
+
+        if has_multiple_databases_same_schema {
+            candidates.push(format!("{}.{}", database, table));
+            let db3 = abbreviate_name(database, 3);
+            candidates.push(format!("{}.{}", db3, table));
+            let sep = 1usize;
+            if max_width > db3.len() + sep {
+                let remain = max_width - db3.len() - sep;
+                if remain > 1 {
+                    let tfit = if table.len() > remain {
+                        abbreviate_name(table, remain)
+                    } else {
+                        table.to_string()
+                    };
+                    candidates.push(format!("{}.{}", db3, tfit));
+                }
+            }
+        }
+        if has_different_schemas {
+            candidates.push(schema_table.to_string());
+            candidates.push(format!("{}.{}", abbreviate_name(schema, 3), table));
+        }
+        if !needs_connection && !needs_database && !needs_schema && !has_different_schemas {
+            candidates.push(table.to_string());
+        }
+        if !needs_connection && needs_database {
+            candidates.push(format!("{}.{}", database, table));
+            candidates.push(format!("{}:{}", database, schema_table));
+            candidates.push(format!("{}.{}", abbreviate_name(database, 3), table));
+        }
+        if needs_connection && !needs_database {
+            let c3 = abbreviate_name(connection, 3);
+            candidates.push(format!("{}:{}", c3, table));
+            candidates.push(format!("{}:{}", c3, schema_table));
+        }
+        if needs_connection && needs_database {
+            let c2 = abbreviate_name(connection, 2);
+            let d3 = abbreviate_name(database, 3);
+            candidates.push(format!("{}:{}:{}", c2, d3, schema_table));
+            candidates.push(format!("{}:{}.{}", c2, d3, table));
+        }
+
+        // Generic abbreviated options
+        let c2 = abbreviate_name(connection, 2);
+        let d3 = abbreviate_name(database, 3);
+        candidates.push(format!("{}:{}:{}", c2, d3, schema_table));
+        candidates.push(format!("{}:{}.{}", c2, d3, table));
+        candidates.push(format!("{}.{}", d3, table));
+
+        if let Some(best) = candidates.into_iter().find(|c| c.len() <= max_width) {
+            return best;
+        }
+
+        if has_multiple_databases_same_schema {
+            let full = format!("{}.{}", database, table);
+            if full.len() <= max_width {
+                return full;
+            }
+            let d3 = abbreviate_name(database, 3);
+            let d3_full = format!("{}.{}", d3, table);
+            if d3_full.len() <= max_width {
+                return d3_full;
+            }
+            if max_width > 2 {
+                for dbl in (2..=3).rev() {
+                    let dab = abbreviate_name(database, dbl);
+                    if max_width > dab.len() + 1 {
+                        let rem = max_width - dab.len() - 1;
+                        let tab = if table.len() > rem {
+                            abbreviate_name(table, rem)
+                        } else {
+                            table.to_string()
+                        };
+                        let cand = format!("{}.{}", dab, tab);
+                        if cand.len() <= max_width {
+                            return cand;
+                        }
+                    }
+                }
+                let db_only = abbreviate_name(database, max_width.min(3));
+                if !db_only.is_empty() {
+                    return db_only;
+                }
+            }
+        }
+
+        // As a last pass, try abbreviated conn/db variants
+        let c2 = abbreviate_name(connection, 2);
+        let d3 = abbreviate_name(database, 3);
+        let full = format!("{}:{}:{}", c2, d3, schema_table);
+        if full.len() <= max_width {
+            return full;
+        }
+        if let Some(p) = schema_table.rfind('.') {
+            let t = &schema_table[p + 1..];
+            let conn_db_t = format!("{}:{}.{}", c2, d3, t);
+            if conn_db_t.len() <= max_width {
+                return conn_db_t;
+            }
+            let db_t = format!("{}.{}", d3, t);
+            if db_t.len() <= max_width {
+                return db_t;
+            }
+            let c_t = format!("{}:{}", c2, t);
+            if c_t.len() <= max_width {
+                return c_t;
+            }
+        }
+
+        if max_width > 3 {
+            return format!("{}...", &schema_table[..max_width.saturating_sub(3)]);
+        }
+    }
+
+    if max_width > 3 {
+        format!("{}...", &full_name[..max_width.saturating_sub(3)])
+    } else {
+        "..".to_string()
+    }
+}
+
+/// Abbreviates a name to the specified length, taking characters from the beginning and end
+pub fn abbreviate_name(name: &str, target_length: usize) -> String {
+    if name.len() <= target_length {
+        return name.to_string();
+    }
+
+    if target_length <= 2 {
+        return name[..target_length].to_string();
+    }
+
+    // Take first and last characters with ellipsis in between
+    let first_chars = (target_length + 1) / 2;
+    let last_chars = target_length - first_chars - 1;
+
+    if first_chars + last_chars >= name.len() {
+        return name.to_string();
+    }
+
+    format!(
+        "{}.{}",
+        &name[..first_chars],
+        &name[name.len() - last_chars..]
+    )
+}
+
+/// Gets a color for a tab based on its connection and database
+fn get_tab_color(tab_name: &str, _index: usize) -> Color {
+    // Parse the tab name to extract connection and database info
+    let parts: Vec<&str> = tab_name.split(':').collect();
+
+    let connection = parts.get(0).unwrap_or(&"");
+    let database = parts.get(1).unwrap_or(&"");
+
+    // Create a hash from connection and database for consistent coloring
+    let mut hash = 0u32;
+    for byte in connection.bytes() {
+        hash = hash.wrapping_mul(31).wrapping_add(byte as u32);
+    }
+    for byte in database.bytes() {
+        hash = hash.wrapping_mul(31).wrapping_add(byte as u32);
+    }
+
+    // Use the hash to select from a palette of distinguishable colors
+    let colors = [
+        Color::Red,
+        Color::Green,
+        Color::Blue,
+        Color::Yellow,
+        Color::Magenta,
+        Color::Cyan,
+        Color::LightRed,
+        Color::LightGreen,
+        Color::LightBlue,
+        Color::LightYellow,
+        Color::LightMagenta,
+        Color::LightCyan,
+    ];
+
+    colors[hash as usize % colors.len()]
 }
