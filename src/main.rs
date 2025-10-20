@@ -815,6 +815,322 @@ async fn handle_command_input(key: KeyEvent, app: &mut App) -> Result<(), io::Er
     Ok(())
 }
 
+fn matches_search_key(keymap: &crate::input::KeyConfig, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Char(c) => c == keymap.search_key,
+        _ => false,
+    }
+}
+
+async fn handle_connection_modal_input(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match app.input_mode {
+        InputMode::Normal => handle_connection_modal_input_normal_mode(key, app).await,
+        InputMode::Insert => handle_connection_modal_input_insert_mode(key, app).await,
+        _ => Ok(()), // Noop for other modes
+    }
+}
+
+async fn handle_connection_modal_input_normal_mode(
+    key: KeyEvent,
+    app: &mut App,
+) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Char('i') => {
+            app.input_mode = InputMode::Insert;
+        }
+        KeyCode::Esc => {
+            app.toggle_connection_modal();
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.connection_form.current_field = (app.connection_form.current_field + 1) % 7;
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.connection_form.current_field = (app.connection_form.current_field + 6) % 7;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_connection_modal_input_insert_mode(
+    key: KeyEvent,
+    app: &mut App,
+) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Esc => {
+            app.input_mode = InputMode::Normal;
+        }
+        KeyCode::Enter => {
+            app.save_connection();
+            app.toggle_connection_modal();
+            app.input_mode = InputMode::Normal;
+        }
+        KeyCode::Down | KeyCode::Up => match key.code {
+            KeyCode::Down => {
+                app.connection_form.current_field = (app.connection_form.current_field + 1) % 7;
+            }
+            KeyCode::Up => {
+                app.connection_form.current_field = (app.connection_form.current_field + 6) % 7;
+            }
+            _ => {}
+        },
+        _ => {
+            // Handle text input
+            match app.connection_form.current_field {
+                0 => {
+                    if let KeyCode::Char(c) = key.code {
+                        app.connection_form.name.push(c);
+                    } else if key.code == KeyCode::Backspace {
+                        app.connection_form.name.pop();
+                    }
+                }
+                1 => {
+                    if let KeyCode::Char(c) = key.code {
+                        app.connection_form.host.push(c);
+                    } else if key.code == KeyCode::Backspace {
+                        app.connection_form.host.pop();
+                    }
+                }
+                2 => {
+                    if let KeyCode::Char(c) = key.code {
+                        app.connection_form.port.push(c);
+                    } else if key.code == KeyCode::Backspace {
+                        app.connection_form.port.pop();
+                    }
+                }
+                3 => {
+                    if let KeyCode::Char(c) = key.code {
+                        app.connection_form.username.push(c);
+                    } else if key.code == KeyCode::Backspace {
+                        app.connection_form.username.pop();
+                    }
+                }
+                4 => {
+                    if let KeyCode::Char(c) = key.code {
+                        app.connection_form.password.push(c);
+                    } else if key.code == KeyCode::Backspace {
+                        app.connection_form.password.pop();
+                    }
+                }
+                5 => {
+                    if let KeyCode::Char(c) = key.code {
+                        app.connection_form.database.push(c);
+                    } else if key.code == KeyCode::Backspace {
+                        app.connection_form.database.pop();
+                    }
+                }
+                6 => {
+                    if let KeyCode::Char(c) = key.code {
+                        app.connection_form.ssh_host.push(c);
+                    } else if key.code == KeyCode::Backspace {
+                        app.connection_form.ssh_host.pop();
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn handle_connections_input(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match app.input_mode {
+        InputMode::Normal => handle_connections_input_normal_mode(key, app).await,
+        InputMode::Insert => handle_connections_input_insert_mode(key, app).await,
+        _ => Ok(()), // Noop for other modes
+    }
+}
+
+async fn handle_connections_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Char('i') => {
+            app.input_mode = InputMode::Insert;
+        }
+        KeyCode::Char('c') => {
+            app.toggle_connection_modal();
+        }
+        KeyCode::Char('d') => {
+            app.delete_connection();
+        }
+        KeyCode::Char('e') => {
+            app.edit_connection();
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if let Some(max_idx) = app.connection_tree.len().checked_sub(1) {
+                app.selected_connection_idx = Some((app.selected_connection_idx.unwrap_or(0) + 1).min(max_idx));
+            }
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            if let Some(current_idx) = app.selected_connection_idx {
+                app.selected_connection_idx = Some(current_idx.saturating_sub(1));
+            }
+        }
+        KeyCode::Enter => {
+            if let Some(idx) = app.selected_connection_idx {
+                app.connect_to_database(idx);
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_connections_input_insert_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Esc => {
+            app.input_mode = InputMode::Normal;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_query_input(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match app.input_mode {
+        InputMode::Normal => handle_query_input_normal_mode(key, app).await,
+        InputMode::Insert => handle_query_input_insert_mode(key, app).await,
+        _ => Ok(()), // Noop for other modes
+    }
+}
+
+async fn handle_query_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Char('i') => {
+            app.input_mode = InputMode::Insert;
+        }
+        KeyCode::Char('r') => {
+            app.run_query();
+        }
+        KeyCode::Char('c') => {
+            app.clear_query();
+        }
+        KeyCode::Char('s') => {
+            app.save_query();
+        }
+        KeyCode::Char('l') => {
+            app.load_query();
+        }
+        KeyCode::Char('h') => {
+            app.show_help();
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_query_input_insert_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Esc => {
+            app.input_mode = InputMode::Normal;
+        }
+        KeyCode::Enter => {
+            app.run_query();
+            app.input_mode = InputMode::Normal;
+        }
+        _ => {
+            // Handle text input
+            if let KeyCode::Char(c) = key.code {
+                app.query.push(c);
+            } else if key.code == KeyCode::Backspace {
+                app.query.pop();
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn handle_results_input(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match app.input_mode {
+        InputMode::Normal => handle_results_input_normal_mode(key, app).await,
+        InputMode::Insert => handle_results_input_insert_mode(key, app).await,
+        _ => Ok(()), // Noop for other modes
+    }
+}
+
+async fn handle_results_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Char('i') => {
+            app.input_mode = InputMode::Insert;
+        }
+        KeyCode::Char('c') => {
+            app.copy_cell();
+        }
+        KeyCode::Char('d') => {
+            app.delete_selected_rows();
+        }
+        KeyCode::Char('u') => {
+            app.undo_deletion();
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.move_cursor_down();
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.move_cursor_up();
+        }
+        KeyCode::Left | KeyCode::Char('h') => {
+            app.move_cursor_left();
+        }
+        KeyCode::Right | KeyCode::Char('l') => {
+            app.move_cursor_right();
+        }
+        KeyCode::PageDown => {
+            app.page_down();
+        }
+        KeyCode::PageUp => {
+            app.page_up();
+        }
+        KeyCode::Home => {
+            app.move_cursor_to_start();
+        }
+        KeyCode::End => {
+            app.move_cursor_to_end();
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_results_input_insert_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Esc => {
+            app.input_mode = InputMode::Normal;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_command_input(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+    match key.code {
+        KeyCode::Esc => {
+            app.input_mode = InputMode::Normal;
+            app.command_buffer.clear();
+        }
+        KeyCode::Enter => {
+            app.execute_command();
+            app.input_mode = InputMode::Normal;
+        }
+        KeyCode::Backspace => {
+            app.command_buffer.pop();
+        }
+        KeyCode::Up => {
+            app.command_history_up();
+        }
+        KeyCode::Down => {
+            app.command_history_down();
+        }
+        KeyCode::Tab => {
+            app.cycle_suggestions();
+        }
+        _ => {
+            if let KeyCode::Char(c) = key.code {
+                app.command_buffer.push(c);
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
     let (cols, rows) = crossterm::terminal::size()?;
     let root = Rect::new(0, 0, cols, rows);

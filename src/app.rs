@@ -2115,4 +2115,13 @@ impl App {
             state.rows_marked_for_deletion.clear();
         }
     }
+
+    pub fn get_selected_suggestion(&self) -> Option<&String> {
+        self.selected_suggestion
+            .and_then(|idx| self.command_suggestions.get(idx))
+    }
+
+    pub fn get_current_theme_name(&self) -> &str {
+        &self.config.theme.name
+    }
 }
