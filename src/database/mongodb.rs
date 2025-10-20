@@ -150,7 +150,7 @@ impl DatabaseConnection for MongoConnection {
             self.ssh_tunnel = Some(tunnel);
         }
         let client = self.setup_connection().await?;
-        self.current_db = Some(client.database(&self.config.database));
+        self.current_db = Some(client.database(self.config.default_database.as_deref().unwrap_or("admin")));
         self.client = Some(client);
         Ok(())
     }
@@ -191,7 +191,7 @@ impl DatabaseConnection for MongoConnection {
     async fn list_tables(&self, _schema: &str) -> Result<Vec<String>> {
         // For MongoDB, list collections under the default schema
         if let Some(client) = &self.client {
-            let db = client.database(&self.config.database);
+            let db = client.database(self.config.default_database.as_deref().unwrap_or("admin"));
             Ok(db.list_collection_names().await?)
         } else {
             Err(anyhow::anyhow!("Not connected to database"))

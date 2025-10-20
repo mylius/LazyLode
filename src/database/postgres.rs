@@ -33,7 +33,7 @@ impl PostgresConnection {
             .port(effective_port)
             .user(&self.config.username)
             .password(self.config.password.as_deref().unwrap_or(""))
-            .dbname(&self.config.database);
+            .dbname(self.config.default_database.as_deref().unwrap_or("postgres"));
 
         let (client, connection) = config.connect(NoTls).await?;
 

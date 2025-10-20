@@ -86,8 +86,10 @@ async fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend).context("Failed to create terminal")?;
     logging::debug("Created terminal")?;
 
-    let app = App::new();
-    logging::debug("Initialized application")?;
+    let app = App::new_with_async_connections()
+        .await
+        .context("Failed to initialize application with async connections")?;
+    logging::debug("Initialized application with async connections")?;
 
     let res = run_app(&mut terminal, app).await; // Note: now awaiting run_app
 
@@ -134,6 +136,11 @@ async fn run_app_tick<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
 ) -> io::Result<()> {
+    // Check for completed background prefetching
+    if let Err(e) = app.check_background_prefetching() {
+        let _ = logging::error(&format!("Error checking background prefetching: {}", e));
+    }
+
     terminal.draw(|f| ui::render(f, app))?;
 
     // Update terminal cursor style based on input mode
@@ -166,19 +173,17 @@ async fn run_app_tick<B: ratatui::backend::Backend>(
                     InputMode::Command => {
                         handle_command_input(key, app).await?;
                     }
-                    _ => {
-                        match app.active_pane {
-                            Pane::Connections => {
-                                handle_connections_input(key, app).await?;
-                            }
-                            Pane::QueryInput => {
-                                handle_query_input(key, app).await?;
-                            }
-                            Pane::Results => {
-                                handle_results_input(key, app).await?;
-                            }
+                    _ => match app.active_pane {
+                        Pane::Connections => {
+                            handle_connections_input(key, app).await?;
                         }
-                    }
+                        Pane::QueryInput => {
+                            handle_query_input(key, app).await?;
+                        }
+                        Pane::Results => {
+                            handle_results_input(key, app).await?;
+                        }
+                    },
                 }
             }
 
@@ -411,7 +416,7 @@ async fn handle_connections_input_normal_mode(
                         port: connection.port.to_string(),
                         username: connection.username.clone(),
                         password: connection.password.clone().unwrap_or_default(),
-                        database: connection.database.clone(),
+                        database: connection.default_database.clone().unwrap_or_default(),
                         editing_index: Some(index),
                         current_field: 0,
                         ssh_enabled: connection.ssh_tunnel.is_some(),
@@ -758,7 +763,7 @@ async fn handle_command_input(key: KeyEvent, app: &mut App) -> Result<(), io::Er
             app.active_block = ActiveBlock::Connections;
             app.command_suggestions.clear();
             app.selected_suggestion = None;
-            
+
             // Process the command
             if command == "themes" {
                 if let Err(e) = app.list_themes() {

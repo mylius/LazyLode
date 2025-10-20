@@ -8,11 +8,18 @@ use clipboard::{ClipboardContext, ClipboardProvider};
 use crate::config::Config;
 use crate::database::core::ForeignKeyTarget;
 use crate::database::{
-    ConnectionConfig, ConnectionManager, ConnectionStatus, DatabaseConnection, DatabaseType,
-    QueryParams, QueryResult,
+    ConnectionConfig, ConnectionManager, ConnectionStatus, DatabaseType, PrefetchedDatabase,
+    PrefetchedSchema, PrefetchedStructure, QueryParams, QueryResult,
 };
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
+use tokio::sync::mpsc;
+
+#[derive(Debug)]
+pub enum PrefetchResult {
+    Success(String, PrefetchedStructure),
+    Failed(String, String), // connection_name, error_message
+}
 
 /// Represents the form data for creating or editing a database connection.
 #[derive(Default, Clone)]
@@ -172,7 +179,8 @@ pub struct App {
     pub selected_result_tab_index: Option<usize>,
     pub show_deletion_modal: bool,
     pub connection_manager: ConnectionManager,
-    pub connections: HashMap<String, Box<dyn DatabaseConnection>>,
+    pub prefetched_structures: HashMap<String, PrefetchedStructure>,
+    pub prefetch_receiver: Option<mpsc::UnboundedReceiver<PrefetchResult>>,
     pub command_buffer: CommandBuffer,
     pub clipboard: String,
     pub last_key_was_d: bool,
@@ -203,7 +211,6 @@ impl App {
             config,
             status_message: None,
             command_input: String::new(),
-            connections: HashMap::new(),
             cursor_position: (0, 0),
             active_pane: Pane::default(),
             connection_tree: Vec::new(),
@@ -211,6 +218,8 @@ impl App {
             selected_result_tab_index: None,
             show_deletion_modal: false,
             connection_manager: ConnectionManager::new(),
+            prefetched_structures: HashMap::new(),
+            prefetch_receiver: None,
             command_buffer: CommandBuffer::new(),
             clipboard: String::new(),
             last_key_was_d: false,
@@ -234,6 +243,218 @@ impl App {
             .collect();
 
         app
+    }
+
+    /// Constructs a new `App` instance with async database connection initialization.
+    pub async fn new_with_async_connections() -> Result<Self> {
+        let config = Config::new();
+        let mut app = Self {
+            should_quit: false,
+            active_block: ActiveBlock::Connections,
+            show_connection_modal: false,
+            saved_connections: config.connections.clone(),
+            selected_connection_idx: None,
+            connection_statuses: config
+                .connections
+                .iter()
+                .map(|c| (c.name.clone(), ConnectionStatus::NotConnected))
+                .collect(),
+            connection_form: ConnectionForm::default(),
+            input_mode: InputMode::Normal,
+            free_query: String::new(),
+            result_tabs: Vec::new(),
+            config,
+            status_message: None,
+            command_input: String::new(),
+            cursor_position: (0, 0),
+            active_pane: Pane::default(),
+            connection_tree: Vec::new(),
+            last_table_info: None,
+            selected_result_tab_index: None,
+            show_deletion_modal: false,
+            connection_manager: ConnectionManager::new(),
+            prefetched_structures: HashMap::new(),
+            prefetch_receiver: None,
+            command_buffer: CommandBuffer::new(),
+            clipboard: String::new(),
+            last_key_was_d: false,
+            awaiting_replace: false,
+            command_suggestions: Vec::new(),
+            selected_suggestion: None,
+        };
+
+        app.load_connections();
+
+        app.connection_tree = app
+            .config
+            .connections
+            .iter()
+            .map(|conn| ConnectionTreeItem {
+                connection_config: conn.clone(),
+                status: ConnectionStatus::NotConnected,
+                databases: Vec::new(),
+                is_expanded: false,
+            })
+            .collect();
+
+        // Initialize connections and start background prefetching
+        if !app.saved_connections.is_empty() {
+            logging::info("Starting background database prefetching...")?;
+
+            // Set all connections to "Connecting" status initially
+            for connection in &app.saved_connections {
+                app.connection_statuses
+                    .insert(connection.name.clone(), ConnectionStatus::Connecting);
+                if let Some(tree_item) = app
+                    .connection_tree
+                    .iter_mut()
+                    .find(|item| item.connection_config.name == connection.name)
+                {
+                    tree_item.status = ConnectionStatus::Connecting;
+                }
+            }
+
+            // Start background prefetching tasks
+            app.start_background_prefetching();
+        }
+
+        Ok(app)
+    }
+
+    /// Start background connection validation for all connections
+    pub fn start_background_prefetching(&mut self) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        self.prefetch_receiver = Some(rx);
+
+        // Initialize connections as not connected - databases will be loaded after validation
+        for connection in &mut self.connection_tree {
+            connection.status = ConnectionStatus::NotConnected; // Start as not connected
+            connection.is_expanded = false; // Don't expand by default
+            connection.databases = Vec::new(); // Will be populated after validation
+        }
+
+        // Start background connection validation
+        for mut config in self.saved_connections.clone() {
+            // Migrate from legacy format
+            config.migrate_from_legacy();
+
+            let config_clone = config.clone();
+            let connection_name = config.name.clone();
+            let tx_clone = tx.clone();
+
+            // Spawn a background task to validate connection and fetch all databases
+            tokio::spawn(async move {
+                let result =
+                    ConnectionManager::fast_prefetch_databases_only(config_clone.clone()).await;
+
+                // Send the result back to the main app
+                match result {
+                    Ok(mut prefetched_structure) => {
+                        // Filter databases based on configuration
+                        if !config_clone.databases.is_empty() {
+                            prefetched_structure
+                                .databases
+                                .retain(|db| config_clone.should_show_database(&db.name));
+                        }
+
+                        let _ = tx_clone.send(PrefetchResult::Success(
+                            connection_name.clone(),
+                            prefetched_structure,
+                        ));
+                        logging::info(&format!(
+                            "Successfully loaded databases for: {}",
+                            connection_name
+                        ))
+                        .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+                    }
+                    Err(e) => {
+                        let _ = tx_clone.send(PrefetchResult::Failed(
+                            connection_name.clone(),
+                            e.to_string(),
+                        ));
+                        logging::error(&format!(
+                            "Failed to load databases for {}: {}",
+                            connection_name, e
+                        ))
+                        .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+                    }
+                }
+            });
+        }
+    }
+
+    /// Check for completed background prefetching results and update the UI
+    pub fn check_background_prefetching(&mut self) -> Result<()> {
+        if let Some(ref mut receiver) = self.prefetch_receiver {
+            while let Ok(result) = receiver.try_recv() {
+                match result {
+                    PrefetchResult::Success(connection_name, prefetched_structure) => {
+                        // Store the prefetched structure
+                        self.prefetched_structures
+                            .insert(connection_name.clone(), prefetched_structure);
+
+                        // Update connection status
+                        self.connection_statuses
+                            .insert(connection_name.clone(), ConnectionStatus::Connected);
+
+                        // Update connection tree with all available databases
+                        if let Some(tree_item) = self
+                            .connection_tree
+                            .iter_mut()
+                            .find(|item| item.connection_config.name == connection_name)
+                        {
+                            tree_item.status = ConnectionStatus::Connected;
+                            // Don't expand by default - user needs to click to expand
+                            tree_item.is_expanded = false;
+
+                            // Populate databases from prefetched data
+                            if let Some(prefetched) =
+                                self.prefetched_structures.get(&connection_name)
+                            {
+                                tree_item.databases = prefetched
+                                    .databases
+                                    .iter()
+                                    .map(|db| DatabaseTreeItem {
+                                        name: db.name.clone(),
+                                        schemas: Vec::new(), // Will be loaded on-demand
+                                        is_expanded: false,
+                                    })
+                                    .collect();
+                            }
+                        }
+
+                        logging::info(&format!(
+                            "Successfully loaded {} databases for: {}",
+                            self.prefetched_structures
+                                .get(&connection_name)
+                                .map(|p| p.databases.len())
+                                .unwrap_or(0),
+                            connection_name
+                        ))?;
+                    }
+                    PrefetchResult::Failed(connection_name, error_message) => {
+                        // Update connection status to failed
+                        self.connection_statuses
+                            .insert(connection_name.clone(), ConnectionStatus::Failed);
+
+                        // Update connection tree status
+                        if let Some(tree_item) = self
+                            .connection_tree
+                            .iter_mut()
+                            .find(|item| item.connection_config.name == connection_name)
+                        {
+                            tree_item.status = ConnectionStatus::Failed;
+                        }
+
+                        logging::error(&format!(
+                            "Background prefetching failed for {}: {}",
+                            connection_name, error_message
+                        ))?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub async fn follow_foreign_key(&mut self) -> Result<()> {
@@ -369,9 +590,11 @@ impl App {
             port: self.connection_form.port.parse().unwrap_or(5432),
             username: self.connection_form.username.clone(),
             password: Some(self.connection_form.password.clone()),
-            database: self.connection_form.database.clone(),
+            default_database: Some(self.connection_form.database.clone()),
+            databases: std::collections::HashMap::new(),
             ssh_tunnel: None,
             ssh_tunnel_name: self.connection_form.ssh_tunnel_name.clone(),
+            database: Some(self.connection_form.database.clone()),
         };
 
         self.saved_connections.push(new_connection.clone());
@@ -560,13 +783,48 @@ impl App {
 
         if let Some(connection) = self.connection_tree.get_mut(index) {
             if !connection.is_expanded {
+                // Check if we already have prefetched data
+                if let Some(prefetched) = self
+                    .prefetched_structures
+                    .get(&connection.connection_config.name)
+                {
+                    // Use existing prefetched data - no need to refetch
+                    connection.status = ConnectionStatus::Connected;
+                    connection.is_expanded = true;
+
+                    connection.databases = prefetched
+                        .databases
+                        .iter()
+                        .map(|db| DatabaseTreeItem {
+                            name: db.name.clone(),
+                            schemas: db
+                                .schemas
+                                .iter()
+                                .map(|schema| SchemaTreeItem {
+                                    name: schema.name.clone(),
+                                    tables: schema.tables.clone(),
+                                    is_expanded: false,
+                                })
+                                .collect(),
+                            is_expanded: false,
+                        })
+                        .collect();
+
+                    logging::info(&format!(
+                        "Expanded connection {} using existing prefetched data",
+                        connection.connection_config.name
+                    ))?;
+                    return Ok(());
+                }
+
+                // No prefetched data available, need to connect and fetch
                 connection.status = ConnectionStatus::Connecting;
                 logging::info(&format!(
                     "Connecting to database: {}",
                     connection.connection_config.name
                 ))?;
 
-                // Try to connect
+                // Try to connect with prefetching
                 let mut cfg = connection.connection_config.clone();
                 if cfg.ssh_tunnel.is_none() {
                     if let Some(name) = &cfg.ssh_tunnel_name {
@@ -582,56 +840,112 @@ impl App {
                     }
                 }
 
-                match self.connection_manager.connect(cfg).await {
-                    Ok(_) => {
-                        if let Some(db_conn) = self
-                            .connection_manager
-                            .get_connection(&connection.connection_config.name)
-                        {
-                            match db_conn.list_databases().await {
-                                Ok(databases) => {
-                                    logging::debug(&format!(
-                                        "Found {} databases",
-                                        databases.len()
-                                    ))?;
+                // Try to prefetch the entire database structure
+                match self
+                    .connection_manager
+                    .prefetch_database_structure(cfg.clone())
+                    .await
+                {
+                    Ok(prefetched_structure) => {
+                        // Store the prefetched structure
+                        self.prefetched_structures.insert(
+                            connection.connection_config.name.clone(),
+                            prefetched_structure,
+                        );
 
-                                    connection.databases = databases
-                                        .into_iter()
-                                        .map(|db_name| DatabaseTreeItem {
-                                            name: db_name,
-                                            schemas: Vec::new(),
+                        connection.status = ConnectionStatus::Connected;
+                        connection.is_expanded = true;
+
+                        // Populate databases with prefetched data
+                        if let Some(prefetched) = self
+                            .prefetched_structures
+                            .get(&connection.connection_config.name)
+                        {
+                            connection.databases = prefetched
+                                .databases
+                                .iter()
+                                .map(|db| DatabaseTreeItem {
+                                    name: db.name.clone(),
+                                    schemas: db
+                                        .schemas
+                                        .iter()
+                                        .map(|schema| SchemaTreeItem {
+                                            name: schema.name.clone(),
+                                            tables: schema.tables.clone(),
                                             is_expanded: false,
                                         })
-                                        .collect();
+                                        .collect(),
+                                    is_expanded: false,
+                                })
+                                .collect();
+                        }
 
-                                    connection.status = ConnectionStatus::Connected;
-                                    connection.is_expanded = true;
+                        logging::info(&format!(
+                            "Successfully connected and prefetched: {}",
+                            connection.connection_config.name
+                        ))?;
+                    }
+                    Err(e) => {
+                        // Fallback to simple connection without prefetching
+                        logging::warn(&format!(
+                            "Prefetching failed for {}, falling back to simple connection: {}",
+                            connection.connection_config.name, e
+                        ))?;
 
-                                    logging::info(&format!(
-                                        "Successfully expanded connection {}",
-                                        connection.connection_config.name
-                                    ))?;
-                                }
-                                Err(e) => {
+                        match self.connection_manager.connect(cfg.clone()).await {
+                            Ok(_) => {
+                                if let Some(db_conn) = self
+                                    .connection_manager
+                                    .get_connection(&connection.connection_config.name)
+                                {
+                                    match db_conn.list_databases().await {
+                                        Ok(databases) => {
+                                            logging::debug(&format!(
+                                                "Found {} databases",
+                                                databases.len()
+                                            ))?;
+
+                                            connection.databases = databases
+                                                .into_iter()
+                                                .map(|db_name| DatabaseTreeItem {
+                                                    name: db_name,
+                                                    schemas: Vec::new(),
+                                                    is_expanded: false,
+                                                })
+                                                .collect();
+
+                                            connection.status = ConnectionStatus::Connected;
+                                            connection.is_expanded = true;
+
+                                            logging::info(&format!(
+                                                "Successfully expanded connection {}",
+                                                connection.connection_config.name
+                                            ))?;
+                                        }
+                                        Err(e) => {
+                                            connection.status = ConnectionStatus::Failed;
+                                            let error_msg =
+                                                format!("Failed to list databases: {}", e);
+                                            logging::error(&error_msg)?;
+                                            return Err(anyhow::anyhow!(error_msg));
+                                        }
+                                    }
+                                } else {
                                     connection.status = ConnectionStatus::Failed;
-                                    let error_msg = format!("Failed to list databases: {}", e);
+                                    let error_msg =
+                                        "Connection not found after successful connection"
+                                            .to_string();
                                     logging::error(&error_msg)?;
                                     return Err(anyhow::anyhow!(error_msg));
                                 }
                             }
-                        } else {
-                            connection.status = ConnectionStatus::Failed;
-                            let error_msg =
-                                "Connection not found after successful connection".to_string();
-                            logging::error(&error_msg)?;
-                            return Err(anyhow::anyhow!(error_msg));
+                            Err(e) => {
+                                connection.status = ConnectionStatus::Failed;
+                                let error_msg = format!("Failed to connect: {}", e);
+                                logging::error(&error_msg)?;
+                                return Err(anyhow::anyhow!(error_msg));
+                            }
                         }
-                    }
-                    Err(e) => {
-                        connection.status = ConnectionStatus::Failed;
-                        let error_msg = format!("Failed to connect: {}", e);
-                        logging::error(&error_msg)?;
-                        return Err(anyhow::anyhow!(error_msg));
                     }
                 }
             } else {
@@ -656,26 +970,131 @@ impl App {
         if let Some(connection) = self.connection_tree.get_mut(conn_idx) {
             if let Some(database) = connection.databases.get_mut(db_idx) {
                 if !database.is_expanded {
-                    if let Some(db_conn) = self
-                        .connection_manager
-                        .get_connection(&connection.connection_config.name)
+                    // Check if we have prefetched data
+                    if let Some(prefetched) = self
+                        .prefetched_structures
+                        .get(&connection.connection_config.name)
                     {
-                        match db_conn.list_schemas(&database.name).await {
-                            Ok(schemas) => {
-                                database.schemas = schemas
-                                    .into_iter()
-                                    .map(|schema_name| SchemaTreeItem {
-                                        name: schema_name,
-                                        tables: Vec::new(),
+                        if let Some(prefetched_db) = prefetched
+                            .databases
+                            .iter()
+                            .find(|db| db.name == database.name)
+                        {
+                            // Check if schemas are already loaded (not empty)
+                            if !prefetched_db.schemas.is_empty() {
+                                // Use existing prefetched schemas
+                                database.schemas = prefetched_db
+                                    .schemas
+                                    .iter()
+                                    .map(|schema| SchemaTreeItem {
+                                        name: schema.name.clone(),
+                                        tables: schema.tables.clone(),
                                         is_expanded: false,
                                     })
                                     .collect();
                                 database.is_expanded = true;
+                                return Ok(());
                             }
-                            Err(e) => {
-                                logging::error(&format!("Failed to list schemas: {}", e))?;
-                                return Err(e);
+                        }
+                    }
+
+                    // Need to prefetch schemas for this database
+                    logging::info(&format!(
+                        "Prefetching schemas for database: {}",
+                        database.name
+                    ))?;
+
+                    // Ensure we have a connection first
+                    if !self
+                        .connection_manager
+                        .connections
+                        .contains_key(&connection.connection_config.name)
+                    {
+                        logging::info(&format!(
+                            "Creating connection for: {}",
+                            connection.connection_config.name
+                        ))?;
+
+                        let mut cfg = connection.connection_config.clone();
+                        if cfg.ssh_tunnel.is_none() {
+                            if let Some(name) = &cfg.ssh_tunnel_name {
+                                if let Some(tunnel) = self
+                                    .config
+                                    .ssh_tunnels
+                                    .iter()
+                                    .find(|t| &t.name == name)
+                                    .cloned()
+                                {
+                                    cfg.ssh_tunnel = Some(tunnel.config);
+                                }
                             }
+                        }
+
+                        self.connection_manager.connect(cfg).await?;
+                    }
+
+                    match self
+                        .connection_manager
+                        .prefetch_schemas_for_database(
+                            &connection.connection_config.name,
+                            &database.name,
+                        )
+                        .await
+                    {
+                        Ok(schemas) => {
+                            // Filter schemas based on configuration
+                            let filtered_schemas: Vec<_> = if let Some(db_config) = connection
+                                .connection_config
+                                .get_database_config(&database.name)
+                            {
+                                if !db_config.schemas.is_empty() {
+                                    // Only show configured schemas
+                                    schemas
+                                        .into_iter()
+                                        .filter(|schema| db_config.schemas.contains(&schema.name))
+                                        .collect()
+                                } else {
+                                    // Show all schemas if none configured
+                                    schemas
+                                }
+                            } else {
+                                // Show all schemas if no database config
+                                schemas
+                            };
+
+                            // Update the prefetched structure
+                            if let Some(prefetched) = self
+                                .prefetched_structures
+                                .get_mut(&connection.connection_config.name)
+                            {
+                                if let Some(prefetched_db) = prefetched
+                                    .databases
+                                    .iter_mut()
+                                    .find(|db| db.name == database.name)
+                                {
+                                    prefetched_db.schemas = filtered_schemas.clone();
+                                }
+                            }
+
+                            // Update the UI
+                            database.schemas = filtered_schemas
+                                .iter()
+                                .map(|schema| SchemaTreeItem {
+                                    name: schema.name.clone(),
+                                    tables: schema.tables.clone(),
+                                    is_expanded: false,
+                                })
+                                .collect();
+
+                            database.is_expanded = true;
+                            logging::info(&format!(
+                                "Successfully prefetched schemas for database: {}",
+                                database.name
+                            ))?;
+                        }
+                        Err(e) => {
+                            logging::error(&format!("Failed to prefetch schemas: {}", e))?;
+                            return Err(e);
                         }
                     }
                 } else {
@@ -702,36 +1121,78 @@ impl App {
             if let Some(database) = connection.databases.get_mut(db_idx) {
                 if let Some(schema) = database.schemas.get_mut(schema_idx) {
                     if !schema.is_expanded {
-                        if let Some(db_connection) = self
-                            .connection_manager
-                            .get_connection(&connection.connection_config.name)
+                        // Check if we have prefetched data
+                        if let Some(prefetched) = self
+                            .prefetched_structures
+                            .get(&connection.connection_config.name)
                         {
-                            match db_connection.list_tables(&schema.name).await {
-                                Ok(tables) => {
-                                    logging::debug(&format!(
-                                        "Found {} tables in schema {}",
-                                        tables.len(),
-                                        schema.name
-                                    ))?;
-                                    schema.tables = tables;
-                                    schema.is_expanded = true;
-                                    logging::info(&format!(
-                                        "Successfully expanded schema {}",
-                                        schema.name
-                                    ))?;
-                                }
-                                Err(e) => {
-                                    logging::error(&format!("Failed to list tables: {}", e))?;
-                                    return Err(e.into());
+                            if let Some(prefetched_db) = prefetched
+                                .databases
+                                .iter()
+                                .find(|db| db.name == database.name)
+                            {
+                                if let Some(prefetched_schema) =
+                                    prefetched_db.schemas.iter().find(|s| s.name == schema.name)
+                                {
+                                    // Check if tables are already loaded (not empty)
+                                    if !prefetched_schema.tables.is_empty() {
+                                        // Use existing prefetched tables
+                                        schema.tables = prefetched_schema.tables.clone();
+                                        schema.is_expanded = true;
+                                        logging::info(&format!(
+                                            "Successfully expanded schema {} using prefetched data",
+                                            schema.name
+                                        ))?;
+                                        return Ok(());
+                                    }
                                 }
                             }
-                        } else {
-                            let err = anyhow::anyhow!("Connection not found in connection manager");
-                            logging::error(&format!(
-                                "Connection {} not found in connection manager",
-                                connection.connection_config.name
-                            ))?;
-                            return Err(err);
+                        }
+
+                        // Need to prefetch tables for this schema
+                        logging::info(&format!("Prefetching tables for schema: {}", schema.name))?;
+
+                        match self
+                            .connection_manager
+                            .prefetch_tables_for_schema(
+                                &connection.connection_config.name,
+                                &schema.name,
+                            )
+                            .await
+                        {
+                            Ok(tables) => {
+                                // Update the prefetched structure
+                                if let Some(prefetched) = self
+                                    .prefetched_structures
+                                    .get_mut(&connection.connection_config.name)
+                                {
+                                    if let Some(prefetched_db) = prefetched
+                                        .databases
+                                        .iter_mut()
+                                        .find(|db| db.name == database.name)
+                                    {
+                                        if let Some(prefetched_schema) = prefetched_db
+                                            .schemas
+                                            .iter_mut()
+                                            .find(|s| s.name == schema.name)
+                                        {
+                                            prefetched_schema.tables = tables.clone();
+                                        }
+                                    }
+                                }
+
+                                // Update the UI
+                                schema.tables = tables;
+                                schema.is_expanded = true;
+                                logging::info(&format!(
+                                    "Successfully prefetched tables for schema: {}",
+                                    schema.name
+                                ))?;
+                            }
+                            Err(e) => {
+                                logging::error(&format!("Failed to prefetch tables: {}", e))?;
+                                return Err(e);
+                            }
                         }
                     } else {
                         schema.is_expanded = false;
@@ -753,9 +1214,11 @@ impl App {
                 port: self.connection_form.port.parse().unwrap_or(5432),
                 username: self.connection_form.username.clone(),
                 password: Some(self.connection_form.password.clone()),
-                database: self.connection_form.database.clone(),
+                default_database: Some(self.connection_form.database.clone()),
+                databases: std::collections::HashMap::new(),
                 ssh_tunnel: None,
                 ssh_tunnel_name: self.connection_form.ssh_tunnel_name.clone(),
+                database: Some(self.connection_form.database.clone()),
             };
 
             self.saved_connections[index] = updated_connection.clone();
@@ -1389,15 +1852,15 @@ impl App {
     pub fn update_command_suggestions(&mut self) {
         let input = self.command_input.to_lowercase();
         let mut suggestions = Vec::new();
-        
+
         if input.is_empty() || "themes".starts_with(&input) {
             suggestions.push("themes".to_string());
         }
-        
+
         if input.is_empty() || "theme".starts_with(&input) {
             suggestions.push("theme".to_string());
         }
-        
+
         if input.starts_with("theme ") {
             let theme_query = input.strip_prefix("theme ").unwrap_or("");
             if let Ok(themes) = crate::config::Config::list_themes() {
@@ -1408,7 +1871,7 @@ impl App {
                 }
             }
         }
-        
+
         self.command_suggestions = suggestions;
         self.selected_suggestion = if self.command_suggestions.is_empty() {
             None
@@ -1633,7 +2096,7 @@ impl App {
         // Now perform the deletion if we have the info
         if let Some((conn_name, schema, table, pk_column, pk_values)) = delete_info {
             if !pk_values.is_empty() {
-                if let Some(db_connection) = self.connections.get(&conn_name) {
+                if let Some(db_connection) = self.connection_manager.connections.get(&conn_name) {
                     let query = format!(
                         "DELETE FROM {}.{} WHERE {} IN ({})",
                         schema,
