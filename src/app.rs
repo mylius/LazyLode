@@ -5,6 +5,7 @@ use crate::logging;
 use crate::navigation::types::Pane;
 use crate::navigation::NavigationManager;
 use crate::ui::types::Direction;
+use crate::ui::layout::QueryField;
 use clipboard::{ClipboardContext, ClipboardProvider};
 
 use crate::config::Config;
@@ -1288,6 +1289,30 @@ impl App {
         None
     }
 
+    pub fn get_visual_index_for_connection(&self, connection_index: usize) -> Option<usize> {
+        let mut visual_index = 0;
+        for (idx, connection) in self.connection_tree.iter().enumerate() {
+            if idx == connection_index {
+                return Some(visual_index);
+            }
+            visual_index += 1;
+            if connection.is_expanded {
+                for database in &connection.databases {
+                    visual_index += 1;
+                    if database.is_expanded {
+                        for schema in &database.schemas {
+                            visual_index += 1;
+                            if schema.is_expanded {
+                                visual_index += schema.tables.len();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Gets the visual index for a given tree item.
 
     /// Get current query state
@@ -1683,16 +1708,81 @@ impl App {
         }
     }
 
+    pub fn select_connection(&mut self, index: usize) {
+        self.selected_connection_idx = Some(index);
+    }
+
+    pub fn focus_connections(&mut self) {
+        self.active_pane = Pane::Connections;
+        self.input_mode = InputMode::Normal;
+        self.last_key_was_d = false;
+        self.awaiting_replace = false;
+        self.navigation_manager
+            .handle_action(crate::navigation::types::NavigationAction::FocusConnections);
+    }
+
+    pub fn focus_query_input(&mut self, field: QueryField, position: usize) {
+        self.active_pane = Pane::QueryInput;
+        self.input_mode = InputMode::Insert;
+        self.last_key_was_d = false;
+        self.awaiting_replace = false;
+        self.cursor_position = match field {
+            QueryField::Where => (0, position),
+            QueryField::OrderBy => (1, position),
+        };
+        self.navigation_manager
+            .handle_action(crate::navigation::types::NavigationAction::FocusQueryInput);
+    }
+
+    pub fn focus_results(&mut self, column: usize, row: usize) {
+        self.active_pane = Pane::Results;
+        self.input_mode = InputMode::Normal;
+        self.last_key_was_d = false;
+        self.awaiting_replace = false;
+        self.cursor_position = (column, row);
+        self.navigation_manager
+            .handle_action(crate::navigation::types::NavigationAction::FocusResults);
+    }
+
+    pub fn select_tab(&mut self, index: usize) {
+        if index < self.result_tabs.len() {
+            self.selected_result_tab_index = Some(index);
+            self.cursor_position = (0, 0);
+        }
+    }
+
+    pub fn select_previous_connection(&mut self) {
+        if let Some(TreeItem::Connection(conn_idx)) = self
+            .selected_connection_idx
+            .and_then(|idx| self.get_tree_item_at_visual_index(idx))
+        {
+            if conn_idx > 0 {
+                self.selected_connection_idx = self
+                    .get_visual_index_for_connection(conn_idx - 1)
+                    .or(Some(conn_idx - 1));
+            }
+        }
+    }
+
+    pub fn select_next_connection(&mut self) {
+        if let Some(TreeItem::Connection(conn_idx)) = self
+            .selected_connection_idx
+            .and_then(|idx| self.get_tree_item_at_visual_index(idx))
+        {
+            let total_connections = self.connection_tree.len();
+            if conn_idx + 1 < total_connections {
+                self.selected_connection_idx = self
+                    .get_visual_index_for_connection(conn_idx + 1)
+                    .or(Some(conn_idx + 1));
+            }
+        }
+    }
+
     /// Moves the selection down in the connections tree.
     pub fn move_selection_down(&mut self) {
         let total_items = self.get_total_visible_items();
 
         if let Some(current_idx) = self.selected_connection_idx {
-            logging::debug(&format!(
-                "move_selection_down: current_idx = {}",
-                current_idx
-            ))
-            .unwrap(); // ADD THIS LINE
             if current_idx + 1 < total_items {
                 self.selected_connection_idx = Some(current_idx + 1);
             }
@@ -1700,11 +1790,6 @@ impl App {
             // If nothing is selected, select the first item
             self.selected_connection_idx = Some(0);
         }
-        logging::debug(&format!(
-            "move_selection_down: selected_connection_idx = {:?}",
-            self.selected_connection_idx
-        ))
-        .unwrap();
     }
 
     pub fn copy_cell(&mut self) -> anyhow::Result<()> {
@@ -2015,5 +2100,9 @@ impl App {
         } else {
             false
         }
+    }
+
+    pub fn tree_item_at(&self, visual_index: usize) -> Option<TreeItem> {
+        self.get_tree_item_at_visual_index(visual_index)
     }
 }

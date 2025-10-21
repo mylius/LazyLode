@@ -13,6 +13,7 @@ use crate::database::ConnectionStatus;
 use crate::logging;
 
 mod modal;
+pub mod layout;
 pub mod types;
 
 #[cfg(test)]
