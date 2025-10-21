@@ -29,8 +29,8 @@ use ratatui::layout::{Constraint, Layout, Position, Rect};
 use ratatui::widgets::{Block, Borders};
 
 use crate::app::{App, InputMode};
-use crate::navigation::NavigationInputHandler;
 use crate::navigation::types::NavigationAction;
+use crate::navigation::NavigationInputHandler;
 use crate::ui::types::Pane;
 
 fn setup_panic_hook() {
@@ -506,7 +506,7 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
 
     let main_panel_chunks = Layout::default()
         .direction(LayoutDirection::Vertical)
-        .constraints([Constraint::Length(8), Constraint::Min(1)])
+        .constraints([Constraint::Length(6), Constraint::Min(1)])
         .split(main_panel_area);
     let query_area = main_panel_chunks[0];
     let results_panel_area = main_panel_chunks[1];
@@ -594,9 +594,10 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                     app.input_mode = InputMode::Normal;
                     app.last_key_was_d = false;
                     app.awaiting_replace = false;
-                    
+
                     // Sync with navigation manager
-                    app.navigation_manager.handle_action(NavigationAction::FocusConnections);
+                    app.navigation_manager
+                        .handle_action(NavigationAction::FocusConnections);
 
                     // Also trigger the tree action to open/expand the item
                     if let Err(e) =
@@ -613,16 +614,16 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                 app.input_mode = InputMode::Insert;
                 app.last_key_was_d = false;
                 app.awaiting_replace = false;
-                
+
                 // Determine which query field was clicked based on position
                 let relative_y = y - query_area.y;
                 let relative_x = x - query_area.x;
-                
+
                 // Split query area into WHERE and ORDER BY sections
                 let query_height = query_area.height;
                 let where_height = query_height / 2;
                 let order_by_height = query_height - where_height;
-                
+
                 if relative_y < where_height {
                     // Clicked in WHERE clause area
                     app.cursor_position.0 = 0;
@@ -642,9 +643,10 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                         app.cursor_position.1 = cursor_x;
                     }
                 }
-                
+
                 // Sync with navigation manager
-                app.navigation_manager.handle_action(NavigationAction::FocusQueryInput);
+                app.navigation_manager
+                    .handle_action(NavigationAction::FocusQueryInput);
             }
 
             // Check if click is in results area
@@ -653,9 +655,10 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                 app.input_mode = InputMode::Normal;
                 app.last_key_was_d = false;
                 app.awaiting_replace = false;
-                
+
                 // Sync with navigation manager
-                app.navigation_manager.handle_action(NavigationAction::FocusResults);
+                app.navigation_manager
+                    .handle_action(NavigationAction::FocusResults);
 
                 // Calculate cursor position based on click coordinates
                 if let Some(selected_tab_index) = app.selected_result_tab_index {
@@ -677,20 +680,49 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                             // Click is in line number column, select first data column
                             app.cursor_position.0 = 0;
                         } else {
-                            // Click is in data area, calculate which data column
+                            // Click is in data area, calculate which data column using exact render widths
                             let data_x = table_inner_x - first_col_width;
 
-                            // Calculate column widths (simplified - assumes equal width columns)
                             let data_cols = result.columns.len() as u16;
                             if data_cols > 0 {
-                                let available_width = results_area
-                                    .width
+                                let spacing: u16 = 1;
+                                let table_inner_width = results_area.width.saturating_sub(2);
+                                let total_spacing =
+                                    spacing.saturating_mul(data_cols.saturating_sub(1));
+                                let remaining_w = table_inner_width
                                     .saturating_sub(first_col_width)
-                                    .saturating_sub(2); // Account for borders
-                                let col_width = available_width / data_cols;
-                                let col = (data_x / col_width) as usize;
+                                    .saturating_sub(total_spacing);
+                                let base = if data_cols > 0 {
+                                    remaining_w / data_cols
+                                } else {
+                                    0
+                                };
+                                let rem = if data_cols > 0 {
+                                    remaining_w % data_cols
+                                } else {
+                                    0
+                                };
+
+                                let mut accum: u16 = 0;
+                                let mut selected_col: usize = 0;
+                                for i in 0..(data_cols as usize) {
+                                    let w: u16 = base + if (i as u16) < rem { 1 } else { 0 };
+                                    let col_end = accum.saturating_add(w);
+                                    if data_x < col_end {
+                                        selected_col = i;
+                                        break;
+                                    }
+                                    accum = col_end.saturating_add(spacing);
+                                    if data_x < accum {
+                                        selected_col = i;
+                                        break;
+                                    }
+                                    if i == (data_cols as usize - 1) {
+                                        selected_col = i;
+                                    }
+                                }
                                 app.cursor_position.0 =
-                                    col.min(result.columns.len().saturating_sub(1));
+                                    selected_col.min(result.columns.len().saturating_sub(1));
                             } else {
                                 app.cursor_position.0 = 0;
                             }
@@ -728,22 +760,67 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
             // Check if click is in tabs area
             if let Some(tabs_rect) = tabs_area {
                 if tabs_rect.contains(Position::new(x, y)) {
-                    // Simple tab selection based on click position
-                    let relative_x = x - tabs_rect.x;
                     let tab_count = app.result_tabs.len();
-
                     if tab_count > 0 {
-                        // Calculate approximate tab width
-                        let tab_width = tabs_rect.width / tab_count as u16;
-                        let tab_index = (relative_x / tab_width) as usize;
+                        // Mirror render_result_tabs width calculation
+                        let available_width = tabs_rect.width.saturating_sub(4);
+                        let divider_width: u16 = 3; // " | "
+                        let total_divider_width = if tab_count > 1 {
+                            (tab_count as u16 - 1).saturating_mul(divider_width)
+                        } else {
+                            0
+                        };
+                        let max_tab_width: u16 = if tab_count > 0 {
+                            (available_width
+                                .saturating_sub(total_divider_width)
+                                / tab_count as u16)
+                                .max(8)
+                        } else {
+                            8
+                        };
 
-                        // Ensure we don't exceed the number of tabs
-                        if tab_index < tab_count {
-                            app.selected_result_tab_index = Some(tab_index);
-                            // Reset cursor position when switching tabs
-                            app.cursor_position = (0, 0);
-                            // Sync with navigation manager
-                            app.navigation_manager.handle_action(NavigationAction::FocusResults);
+                        // Compute displayed label widths
+                        let mut label_widths: Vec<u16> = Vec::with_capacity(tab_count);
+                        for (name, _, _) in app.result_tabs.iter() {
+                            let shortened = crate::ui::shorten_tab_name_intelligent(
+                                name,
+                                &app.result_tabs,
+                                max_tab_width as usize,
+                            );
+                            let w = shortened.len().min(max_tab_width as usize) as u16;
+                            // Ensure at least 1 width to be clickable
+                            let w = w.max(1);
+                            label_widths.push(w);
+                        }
+
+                        // Map click x to content x (Tabs draws from left edge)
+                        let content_x = x.saturating_sub(tabs_rect.x);
+
+                        // Walk through tabs accumulating widths + dividers
+                        let mut accum: u16 = 0;
+                        let mut clicked_index: Option<usize> = None;
+                        for i in 0..tab_count {
+                            let w = label_widths[i];
+                            let end = accum.saturating_add(w);
+                            if content_x < end {
+                                clicked_index = Some(i);
+                                break;
+                            }
+                            accum = end.saturating_add(divider_width);
+                            if content_x < accum {
+                                // Click on divider selects tab to the left
+                                clicked_index = Some(i);
+                                break;
+                            }
+                        }
+
+                        if let Some(tab_index) = clicked_index {
+                            if tab_index < tab_count {
+                                app.selected_result_tab_index = Some(tab_index);
+                                app.cursor_position = (0, 0);
+                                app.navigation_manager
+                                    .handle_action(NavigationAction::FocusResults);
+                            }
                         }
                     }
                 }

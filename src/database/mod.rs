@@ -6,7 +6,7 @@ mod mongodb;
 mod postgres;
 
 // SSH tunneling support
-// pub mod ssh_tunnel;
+pub mod ssh_tunnel;
 
 // Connection management
 pub mod factory;

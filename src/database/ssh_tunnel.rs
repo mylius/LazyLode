@@ -1,84 +1,83 @@
-use crate::database::SSHConfig;
-use anyhow::Result;
-use ssh2::Session;
-use std::net::TcpStream;
-use tokio::net::TcpListener;
-use tokio::task::JoinHandle;
+use anyhow::{anyhow, Context, Result};
+use std::net::{SocketAddr, TcpListener};
+use tokio::process::{Child, Command};
+use tokio::time::{sleep, Duration};
+
+use super::SSHConfig;
 
 pub struct SshTunnelProcess {
-    local_port: u16,
-    _handle: JoinHandle<()>,
+    pub local_port: u16,
+    child: Child,
 }
 
 impl SshTunnelProcess {
     pub async fn start(
-        ssh_config: &SSHConfig,
-        remote_host: &str,
-        remote_port: u16,
-    ) -> Result<Self> {
-        let ssh_config = ssh_config.clone();
-        let remote_host = remote_host.to_string();
-        
-        // Find an available local port
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let local_port = listener.local_addr()?.port();
-        
-        let handle = tokio::spawn(async move {
-            if let Err(e) = Self::run_tunnel(ssh_config, remote_host, remote_port, listener).await {
-                let _ = crate::logging::error(&format!("SSH tunnel error: {}", e));
+        ssh: &SSHConfig,
+        target_host: &str,
+        target_port: u16,
+    ) -> Result<SshTunnelProcess> {
+        let local_port = allocate_free_local_port()?;
+
+        let mut args: Vec<String> = vec![
+            "-N".into(),
+            "-L".into(),
+            format!("{}:{}:{}", local_port, target_host, target_port),
+            "-p".into(),
+            ssh.port.to_string(),
+            "-o".into(),
+            "ExitOnForwardFailure=yes".into(),
+            "-o".into(),
+            "StrictHostKeyChecking=accept-new".into(),
+        ];
+
+        if let Some(key_path) = &ssh.private_key_path {
+            if !key_path.is_empty() {
+                args.push("-i".into());
+                args.push(key_path.clone());
             }
-        });
-        
-        Ok(Self {
-            local_port,
-            _handle: handle,
-        })
-    }
-    
-    async fn run_tunnel(
-        ssh_config: SSHConfig,
-        remote_host: String,
-        remote_port: u16,
-        mut listener: TcpListener,
-    ) -> Result<()> {
-        // Connect to SSH server
-        let tcp = TcpStream::connect(format!("{}:{}", ssh_config.host, ssh_config.port))?;
-        let mut session = Session::new()?;
-        session.set_tcp_stream(tcp);
-        session.handshake()?;
-        
-        // Authenticate
-        if let Some(private_key_path) = &ssh_config.private_key_path {
-            session.userauth_pubkey_file(&ssh_config.username, None, private_key_path, None)?;
-        } else if let Some(password) = &ssh_config.password {
-            session.userauth_password(&ssh_config.username, password)?;
+        }
+
+        // Build user@host target
+        let user_at_host = if !ssh.username.is_empty() {
+            format!("{}@{}", ssh.username, ssh.host)
         } else {
-            return Err(anyhow::anyhow!("No authentication method provided for SSH tunnel"));
+            ssh.host.clone()
+        };
+        args.push(user_at_host);
+
+        let mut cmd = Command::new("ssh");
+        cmd.args(&args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped());
+
+        let mut child = cmd.spawn().context("failed to spawn ssh process")?;
+
+        // Give ssh some time to bind and establish forwarding; also detect early exit
+        for _ in 0..10u8 {
+            if let Some(status) = child.try_wait()? {
+                return Err(anyhow!(
+                    "ssh process exited early with status: {}",
+                    status
+                ));
+            }
+            sleep(Duration::from_millis(100)).await;
         }
-        
-        // Create port forward
-        let mut channel = session.channel_direct_tcpip(&remote_host, remote_port, None)?;
-        
-        // Accept connections and forward them
-        loop {
-            let (mut local_stream, _) = listener.accept().await?;
-            
-            // For now, just keep the tunnel alive
-            // In a full implementation, we would forward data between local_stream and channel
-            tokio::spawn(async move {
-                let _ = local_stream;
-                // Keep the connection alive
-                tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
-            });
-        }
+
+        Ok(SshTunnelProcess { local_port, child })
     }
-    
-    pub fn local_port(&self) -> u16 {
-        self.local_port
-    }
-    
-    pub async fn stop(self) -> Result<()> {
-        // The handle will be dropped and the task will be cancelled
+
+    pub async fn stop(&mut self) -> Result<()> {
+        let _ = self.child.kill().await;
         Ok(())
     }
 }
+
+fn allocate_free_local_port() -> Result<u16> {
+    let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let listener = TcpListener::bind(addr).context("failed to bind local ephemeral port")?;
+    let local_port = listener.local_addr()?.port();
+    drop(listener);
+    Ok(local_port)
+}
+

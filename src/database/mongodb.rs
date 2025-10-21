@@ -30,7 +30,7 @@ impl MongoConnection {
 
     async fn setup_connection(&mut self) -> Result<Client> {
         let (effective_host, effective_port) = if let Some(ref tunnel) = self.ssh_tunnel {
-            ("127.0.0.1".to_string(), tunnel.local_port())
+            ("127.0.0.1".to_string(), tunnel.local_port)
         } else {
             (self.config.host.clone(), self.config.port)
         };
@@ -150,7 +150,8 @@ impl DatabaseConnection for MongoConnection {
             self.ssh_tunnel = Some(tunnel);
         }
         let client = self.setup_connection().await?;
-        self.current_db = Some(client.database(self.config.default_database.as_deref().unwrap_or("admin")));
+        self.current_db =
+            Some(client.database(self.config.default_database.as_deref().unwrap_or("admin")));
         self.client = Some(client);
         Ok(())
     }
@@ -158,9 +159,10 @@ impl DatabaseConnection for MongoConnection {
     async fn disconnect(&mut self) -> Result<()> {
         self.client = None;
         self.current_db = None;
-        if let Some(tunnel) = self.ssh_tunnel.take() {
+        if let Some(tunnel) = &mut self.ssh_tunnel {
             let _ = tunnel.stop().await;
         }
+        self.ssh_tunnel = None;
         Ok(())
     }
 

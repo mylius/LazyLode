@@ -1,5 +1,5 @@
 use super::core::*;
-// use super::ssh_tunnel::SshTunnelProcess;
+use super::ssh_tunnel::SshTunnelProcess;
 use crate::logging;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -8,7 +8,7 @@ use tokio_postgres::{Client, NoTls};
 pub struct PostgresConnection {
     config: super::ConnectionConfig,
     client: Option<Client>,
-    // ssh_tunnel: Option<SshTunnelProcess>,
+    ssh_tunnel: Option<SshTunnelProcess>,
 }
 
 impl PostgresConnection {
@@ -23,7 +23,7 @@ impl PostgresConnection {
     async fn setup_connection(&mut self) -> Result<Client> {
         let mut config = tokio_postgres::Config::new();
         let (effective_host, effective_port) = if let Some(ref tunnel) = self.ssh_tunnel {
-            ("127.0.0.1", tunnel.local_port())
+            ("127.0.0.1", tunnel.local_port)
         } else {
             (self.config.host.as_str(), self.config.port)
         };
@@ -33,7 +33,12 @@ impl PostgresConnection {
             .port(effective_port)
             .user(&self.config.username)
             .password(self.config.password.as_deref().unwrap_or(""))
-            .dbname(self.config.default_database.as_deref().unwrap_or("postgres"));
+            .dbname(
+                self.config
+                    .default_database
+                    .as_deref()
+                    .unwrap_or("postgres"),
+            );
 
         let (client, connection) = config.connect(NoTls).await?;
 
@@ -73,9 +78,10 @@ impl DatabaseConnection for PostgresConnection {
 
     async fn disconnect(&mut self) -> Result<()> {
         self.client = None;
-        if let Some(tunnel) = self.ssh_tunnel.take() {
+        if let Some(tunnel) = &mut self.ssh_tunnel {
             let _ = tunnel.stop().await;
         }
+        self.ssh_tunnel = None;
         Ok(())
     }
 
