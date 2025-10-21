@@ -2,7 +2,6 @@ use crate::database::SSHConfig;
 use anyhow::Result;
 use ssh2::Session;
 use std::net::TcpStream;
-use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
@@ -43,7 +42,7 @@ impl SshTunnelProcess {
         listener: TcpListener,
     ) -> Result<()> {
         loop {
-            let (mut local_stream, _) = listener.accept().await?;
+            let (local_stream, _) = listener.accept().await?;
             
             // Spawn a task to handle each connection
             let ssh_config = ssh_config.clone();
@@ -61,40 +60,46 @@ impl SshTunnelProcess {
         ssh_config: SSHConfig,
         remote_host: String,
         remote_port: u16,
-        mut local_stream: tokio::net::TcpStream,
+        local_stream: tokio::net::TcpStream,
     ) -> Result<()> {
-        // Connect to SSH server
-        let tcp = TcpStream::connect(format!("{}:{}", ssh_config.host, ssh_config.port))?;
-        let mut session = Session::new()?;
-        session.set_tcp_stream(tcp);
-        session.handshake()?;
+        // Run SSH operations in a blocking task
+        let result = tokio::task::spawn_blocking(move || {
+            // Connect to SSH server
+            let tcp = TcpStream::connect(format!("{}:{}", ssh_config.host, ssh_config.port))?;
+            let mut session = Session::new()?;
+            session.set_tcp_stream(tcp);
+            session.handshake()?;
+            
+            // Authenticate
+            if let Some(private_key_path) = &ssh_config.private_key_path {
+                session.userauth_pubkey_file(&ssh_config.username, None, private_key_path, None)?;
+            } else if let Some(password) = &ssh_config.password {
+                session.userauth_password(&ssh_config.username, password)?;
+            } else {
+                return Err(anyhow::anyhow!("No authentication method provided for SSH tunnel"));
+            }
+            
+            // Create port forward
+            let mut channel = session.channel_direct_tcpip(&remote_host, remote_port, None)?;
+            
+            // Convert to async streams for data forwarding
+            let local_stream = local_stream.into_std()?;
+            let (mut local_read, mut local_write) = local_stream.try_clone()?.into_split();
+            let (mut remote_read, mut remote_write) = channel.split();
+            
+            // Forward data in both directions
+            std::thread::spawn(move || {
+                let _ = std::io::copy(&mut local_read, &mut remote_write);
+            });
+            
+            std::thread::spawn(move || {
+                let _ = std::io::copy(&mut remote_read, &mut local_write);
+            });
+            
+            Ok(())
+        }).await?;
         
-        // Authenticate
-        if let Some(private_key_path) = &ssh_config.private_key_path {
-            session.userauth_pubkey_file(&ssh_config.username, None, private_key_path, None)?;
-        } else if let Some(password) = &ssh_config.password {
-            session.userauth_password(&ssh_config.username, password)?;
-        } else {
-            return Err(anyhow::anyhow!("No authentication method provided for SSH tunnel"));
-        }
-        
-        // Create port forward
-        let mut channel = session.channel_direct_tcpip(&remote_host, remote_port, None)?;
-        
-        // Forward data between local and remote
-        let (mut local_read, mut local_write) = local_stream.split();
-        let (mut remote_read, mut remote_write) = channel.split();
-        
-        // Forward data in both directions
-        let local_to_remote = tokio::io::copy(&mut local_read, &mut remote_write);
-        let remote_to_local = tokio::io::copy(&mut remote_read, &mut local_write);
-        
-        tokio::select! {
-            _ = local_to_remote => {},
-            _ = remote_to_local => {},
-        }
-        
-        Ok(())
+        result
     }
     
     pub fn local_port(&self) -> u16 {
