@@ -2011,8 +2011,11 @@ impl App {
         Some(vec![vec!["No items selected for deletion".to_string()]])
     }
 
-    pub fn highlight_selected_item(&self, _index: usize) -> bool {
-        // Implementation for highlighting selected item
-        false
+    pub fn highlight_selected_item(&self, visible_index: usize) -> bool {
+        if let Some(selected_idx) = self.selected_connection_idx {
+            visible_index == selected_idx
+        } else {
+            false
+        }
     }
 }
