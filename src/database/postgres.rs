@@ -1,5 +1,5 @@
 use super::core::*;
-// use super::ssh_tunnel::SshTunnelProcess;
+use super::ssh_tunnel::SshTunnelProcess;
 use crate::logging;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -8,7 +8,7 @@ use tokio_postgres::{Client, NoTls};
 pub struct PostgresConnection {
     config: super::ConnectionConfig,
     client: Option<Client>,
-    // ssh_tunnel: Option<SshTunnelProcess>,
+    ssh_tunnel: Option<SshTunnelProcess>,
 }
 
 impl PostgresConnection {
@@ -16,14 +16,14 @@ impl PostgresConnection {
         Self {
             config,
             client: None,
-            // ssh_tunnel: None,
+            ssh_tunnel: None,
         }
     }
 
     async fn setup_connection(&mut self) -> Result<Client> {
         let mut config = tokio_postgres::Config::new();
-        let (effective_host, effective_port) = if let Some(_tunnel) = &self.config.ssh_tunnel {
-            ("127.0.0.1", 5432) // Placeholder port
+        let (effective_host, effective_port) = if let Some(ref tunnel) = self.ssh_tunnel {
+            ("127.0.0.1", tunnel.local_port())
         } else {
             (self.config.host.as_str(), self.config.port)
         };
@@ -63,20 +63,19 @@ fn quote_identifier_exact(identifier: &str) -> String {
 #[async_trait]
 impl DatabaseConnection for PostgresConnection {
     async fn connect(&mut self) -> Result<()> {
-        // if let Some(ssh) = &self.config.ssh_tunnel {
-        //     let tunnel = SshTunnelProcess::start(ssh, &self.config.host, self.config.port).await?;
-        //     self.ssh_tunnel = Some(tunnel);
-        // }
+        if let Some(ssh) = &self.config.ssh_tunnel {
+            let tunnel = SshTunnelProcess::start(ssh, &self.config.host, self.config.port).await?;
+            self.ssh_tunnel = Some(tunnel);
+        }
         self.client = Some(self.setup_connection().await?);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<()> {
         self.client = None;
-        // if let Some(tunnel) = &mut self.ssh_tunnel {
-        //     let _ = tunnel.stop().await;
-        // }
-        // self.ssh_tunnel = None;
+        if let Some(tunnel) = self.ssh_tunnel.take() {
+            let _ = tunnel.stop().await;
+        }
         Ok(())
     }
 

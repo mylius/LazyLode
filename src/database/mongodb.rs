@@ -1,5 +1,5 @@
 use super::core::*;
-// use super::ssh_tunnel::SshTunnelProcess;
+use super::ssh_tunnel::SshTunnelProcess;
 use crate::logging;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -15,7 +15,7 @@ pub struct MongoConnection {
     config: super::ConnectionConfig,
     client: Option<Client>,
     current_db: Option<Database>,
-    // ssh_tunnel: Option<SshTunnelProcess>,
+    ssh_tunnel: Option<SshTunnelProcess>,
 }
 
 impl MongoConnection {
@@ -24,13 +24,13 @@ impl MongoConnection {
             config,
             client: None,
             current_db: None,
-            // ssh_tunnel: None,
+            ssh_tunnel: None,
         }
     }
 
     async fn setup_connection(&mut self) -> Result<Client> {
-        let (effective_host, effective_port) = if let Some(_tunnel) = &self.config.ssh_tunnel {
-            ("127.0.0.1".to_string(), 5432) // Placeholder port
+        let (effective_host, effective_port) = if let Some(ref tunnel) = self.ssh_tunnel {
+            ("127.0.0.1".to_string(), tunnel.local_port())
         } else {
             (self.config.host.clone(), self.config.port)
         };
@@ -145,10 +145,10 @@ impl MongoConnection {
 #[async_trait]
 impl DatabaseConnection for MongoConnection {
     async fn connect(&mut self) -> Result<()> {
-        // if let Some(ssh) = &self.config.ssh_tunnel {
-        //     let tunnel = SshTunnelProcess::start(ssh, &self.config.host, self.config.port).await?;
-        //     self.ssh_tunnel = Some(tunnel);
-        // }
+        if let Some(ssh) = &self.config.ssh_tunnel {
+            let tunnel = SshTunnelProcess::start(ssh, &self.config.host, self.config.port).await?;
+            self.ssh_tunnel = Some(tunnel);
+        }
         let client = self.setup_connection().await?;
         self.current_db = Some(client.database(self.config.default_database.as_deref().unwrap_or("admin")));
         self.client = Some(client);
@@ -158,10 +158,9 @@ impl DatabaseConnection for MongoConnection {
     async fn disconnect(&mut self) -> Result<()> {
         self.client = None;
         self.current_db = None;
-        // if let Some(tunnel) = &mut self.ssh_tunnel {
-        //     let _ = tunnel.stop().await;
-        // }
-        // self.ssh_tunnel = None;
+        if let Some(tunnel) = self.ssh_tunnel.take() {
+            let _ = tunnel.stop().await;
+        }
         Ok(())
     }
 
