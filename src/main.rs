@@ -12,8 +12,8 @@ use anyhow::{Context, Result};
 use crossterm::{
     cursor::SetCursorStyle,
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, MouseButton, MouseEvent,
-        MouseEventKind,
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, MouseButton,
+        MouseEvent, MouseEventKind,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -159,7 +159,6 @@ async fn run_app_tick<B: ratatui::backend::Backend>(
     Ok(())
 }
 
-
 async fn handle_connection_modal_input(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
     match app.input_mode {
         InputMode::Normal => handle_connection_modal_input_normal_mode(key, app).await,
@@ -279,7 +278,10 @@ async fn handle_connections_input(key: KeyEvent, app: &mut App) -> Result<(), io
     }
 }
 
-async fn handle_connections_input_normal_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+async fn handle_connections_input_normal_mode(
+    key: KeyEvent,
+    app: &mut App,
+) -> Result<(), io::Error> {
     match key.code {
         KeyCode::Char('i') => {
             app.input_mode = InputMode::Insert;
@@ -295,7 +297,8 @@ async fn handle_connections_input_normal_mode(key: KeyEvent, app: &mut App) -> R
         }
         KeyCode::Down | KeyCode::Char('j') => {
             if let Some(max_idx) = app.connection_tree.len().checked_sub(1) {
-                app.selected_connection_idx = Some((app.selected_connection_idx.unwrap_or(0) + 1).min(max_idx));
+                app.selected_connection_idx =
+                    Some((app.selected_connection_idx.unwrap_or(0) + 1).min(max_idx));
             }
         }
         KeyCode::Up | KeyCode::Char('k') => {
@@ -313,7 +316,10 @@ async fn handle_connections_input_normal_mode(key: KeyEvent, app: &mut App) -> R
     Ok(())
 }
 
-async fn handle_connections_input_insert_mode(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
+async fn handle_connections_input_insert_mode(
+    key: KeyEvent,
+    app: &mut App,
+) -> Result<(), io::Error> {
     match key.code {
         KeyCode::Esc => {
             app.input_mode = InputMode::Normal;
@@ -538,18 +544,18 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
             if conn_list_inner.contains(Position::new(x, y)) {
                 let relative_y = y - conn_list_inner.y;
                 let item_index = relative_y as usize;
-                
+
                 // Calculate the visual index properly by counting visible items
                 let mut current_visual_index = 0;
                 let mut found_index = None;
-                
+
                 for (conn_idx, connection) in app.connection_tree.iter().enumerate() {
                     if current_visual_index == item_index {
                         found_index = Some(current_visual_index);
                         break;
                     }
                     current_visual_index += 1;
-                    
+
                     if connection.is_expanded {
                         for (_db_idx, database) in connection.databases.iter().enumerate() {
                             if current_visual_index == item_index {
@@ -557,7 +563,7 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                                 break;
                             }
                             current_visual_index += 1;
-                            
+
                             if database.is_expanded {
                                 for (_schema_idx, schema) in database.schemas.iter().enumerate() {
                                     if current_visual_index == item_index {
@@ -565,7 +571,7 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                                         break;
                                     }
                                     current_visual_index += 1;
-                                    
+
                                     if schema.is_expanded {
                                         for _table in &schema.tables {
                                             if current_visual_index == item_index {
@@ -580,16 +586,18 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                         }
                     }
                 }
-                
+
                 if let Some(visual_index) = found_index {
                     app.selected_connection_idx = Some(visual_index);
                     app.active_pane = Pane::Connections;
                     app.input_mode = InputMode::Normal;
                     app.last_key_was_d = false;
                     app.awaiting_replace = false;
-                    
+
                     // Also trigger the tree action to open/expand the item
-                    if let Err(e) = executor::block_on(app.handle_tree_action(crate::input::TreeAction::Expand)) {
+                    if let Err(e) =
+                        executor::block_on(app.handle_tree_action(crate::input::TreeAction::Expand))
+                    {
                         let _ = logging::error(&format!("Error expanding tree item: {}", e));
                     }
                 }
@@ -609,22 +617,22 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                 app.input_mode = InputMode::Normal;
                 app.last_key_was_d = false;
                 app.awaiting_replace = false;
-                
+
                 // Calculate cursor position based on click coordinates
                 if let Some(selected_tab_index) = app.selected_result_tab_index {
                     if let Some((_, result, _)) = app.result_tabs.get(selected_tab_index) {
                         let relative_x = x - results_area.x;
                         let relative_y = y - results_area.y;
-                        
+
                         // Account for table structure: borders, header, and line number column
                         let table_inner_x = relative_x.saturating_sub(1); // Account for left border
                         let table_inner_y = relative_y.saturating_sub(1); // Account for top border and header
-                        
+
                         // Calculate line number column width
                         let max_lines = result.rows.len();
                         let line_num_width = max_lines.to_string().len().max(3) as u16;
                         let first_col_width = line_num_width + 1; // +1 for padding
-                        
+
                         // Check if click is in the line number column
                         if table_inner_x < first_col_width {
                             // Click is in line number column, select first data column
@@ -632,31 +640,37 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                         } else {
                             // Click is in data area, calculate which data column
                             let data_x = table_inner_x - first_col_width;
-                            
+
                             // Calculate column widths (simplified - assumes equal width columns)
                             let data_cols = result.columns.len() as u16;
                             if data_cols > 0 {
-                                let available_width = results_area.width.saturating_sub(first_col_width).saturating_sub(2); // Account for borders
+                                let available_width = results_area
+                                    .width
+                                    .saturating_sub(first_col_width)
+                                    .saturating_sub(2); // Account for borders
                                 let col_width = available_width / data_cols;
                                 let col = (data_x / col_width) as usize;
-                                app.cursor_position.0 = col.min(result.columns.len().saturating_sub(1));
+                                app.cursor_position.0 =
+                                    col.min(result.columns.len().saturating_sub(1));
                             } else {
                                 app.cursor_position.0 = 0;
                             }
                         }
-                        
+
                         // Calculate row (account for header row and pagination)
                         let row = if table_inner_y > 0 {
-                            (table_inner_y - 1) as usize // -1 for header row
+                            (table_inner_y + 1) as usize
                         } else {
                             0
                         };
-                        
+
                         // Account for table pagination/scrolling
-                        let visible_capacity = results_area.height.saturating_sub(3).max(0) as usize; // Account for borders and header
+                        let visible_capacity =
+                            results_area.height.saturating_sub(3).max(0) as usize; // Account for borders and header
                         let total_rows = result.rows.len();
                         let max_start = total_rows.saturating_sub(visible_capacity);
-                        let current_cursor_row = app.cursor_position.1.min(total_rows.saturating_sub(1));
+                        let current_cursor_row =
+                            app.cursor_position.1.min(total_rows.saturating_sub(1));
                         let start_row = if visible_capacity == 0 {
                             0
                         } else {
@@ -664,7 +678,7 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                                 .saturating_sub(visible_capacity / 2)
                                 .min(max_start)
                         };
-                        
+
                         // Convert click row to actual data row index
                         let actual_row = start_row + row;
                         app.cursor_position.1 = actual_row.min(result.rows.len().saturating_sub(1));
@@ -678,12 +692,12 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                     // Simple tab selection based on click position
                     let relative_x = x - tabs_rect.x;
                     let tab_count = app.result_tabs.len();
-                    
+
                     if tab_count > 0 {
                         // Calculate approximate tab width
                         let tab_width = tabs_rect.width / tab_count as u16;
                         let tab_index = (relative_x / tab_width) as usize;
-                        
+
                         // Ensure we don't exceed the number of tabs
                         if tab_index < tab_count {
                             app.selected_result_tab_index = Some(tab_index);
