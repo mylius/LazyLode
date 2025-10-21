@@ -1,4 +1,4 @@
-use crate::navigation::types::{VimMode, Direction};
+use crate::navigation::types::{Direction, VimMode};
 use crossterm::event::{KeyCode, KeyModifiers};
 
 /// Vim-style text editor for handling text input with vim keybindings
@@ -76,6 +76,7 @@ impl VimEditor {
             }
             KeyCode::Char('a') => {
                 self.mode = VimMode::Insert;
+                // 'a' should move cursor right first, then enter insert mode
                 self.move_cursor(Direction::Right);
                 true
             }
@@ -243,7 +244,7 @@ impl VimEditor {
     pub fn move_cursor(&mut self, direction: Direction) {
         let (row, col) = self.cursor_position;
         let lines: Vec<&str> = self.content.lines().collect();
-        
+
         if lines.is_empty() {
             return;
         }
@@ -279,7 +280,7 @@ impl VimEditor {
         // Simplified word movement - move to next space or end of line
         let (row, col) = self.cursor_position;
         let lines: Vec<&str> = self.content.lines().collect();
-        
+
         if let Some(line) = lines.get(row) {
             let remaining = &line[col..];
             if let Some(pos) = remaining.find(' ') {
@@ -294,7 +295,7 @@ impl VimEditor {
         // Simplified word movement - move to previous space or start of line
         let (row, col) = self.cursor_position;
         let lines: Vec<&str> = self.content.lines().collect();
-        
+
         if let Some(line) = lines.get(row) {
             let before = &line[..col];
             if let Some(pos) = before.rfind(' ') {
@@ -312,7 +313,7 @@ impl VimEditor {
     pub fn move_to_line_end(&mut self) {
         let (row, _) = self.cursor_position;
         let lines: Vec<&str> = self.content.lines().collect();
-        
+
         if let Some(line) = lines.get(row) {
             self.cursor_position = (row, line.len());
         }
@@ -321,64 +322,64 @@ impl VimEditor {
     pub fn insert_char_at_cursor(&mut self, c: char) {
         let (row, col) = self.cursor_position;
         let mut lines: Vec<String> = self.content.lines().map(|s| s.to_string()).collect();
-        
+
         if lines.is_empty() {
             lines.push(String::new());
         }
-        
+
         if let Some(line) = lines.get_mut(row) {
             line.insert(col, c);
             self.cursor_position = (row, col + 1);
         }
-        
+
         self.content = lines.join("\n");
     }
 
     fn replace_char_at_cursor(&mut self, c: char) {
         let (row, col) = self.cursor_position;
         let mut lines: Vec<String> = self.content.lines().map(|s| s.to_string()).collect();
-        
+
         if let Some(line) = lines.get_mut(row) {
             if col < line.len() {
                 line.replace_range(col..col + 1, &c.to_string());
                 self.cursor_position = (row, col + 1);
             }
         }
-        
+
         self.content = lines.join("\n");
     }
 
     pub fn delete_char_at_cursor(&mut self) {
         let (row, col) = self.cursor_position;
         let mut lines: Vec<String> = self.content.lines().map(|s| s.to_string()).collect();
-        
+
         if let Some(line) = lines.get_mut(row) {
             if col < line.len() {
                 line.remove(col);
             }
         }
-        
+
         self.content = lines.join("\n");
     }
 
     pub fn delete_char_before_cursor(&mut self) {
         let (row, col) = self.cursor_position;
         let mut lines: Vec<String> = self.content.lines().map(|s| s.to_string()).collect();
-        
+
         if let Some(line) = lines.get_mut(row) {
             if col > 0 {
                 line.remove(col - 1);
                 self.cursor_position = (row, col - 1);
             }
         }
-        
+
         self.content = lines.join("\n");
     }
 
     pub fn delete_line(&mut self) {
         let row = self.cursor_position.0;
         let mut lines: Vec<String> = self.content.lines().map(|s| s.to_string()).collect();
-        
+
         if row < lines.len() {
             lines.remove(row);
             if lines.is_empty() {
@@ -386,21 +387,21 @@ impl VimEditor {
             }
             self.cursor_position = (row.min(lines.len() - 1), 0);
         }
-        
+
         self.content = lines.join("\n");
     }
 
     pub fn insert_newline(&mut self) {
         let (row, col) = self.cursor_position;
         let mut lines: Vec<String> = self.content.lines().map(|s| s.to_string()).collect();
-        
+
         if let Some(line) = lines.get_mut(row) {
             let before = line[..col].to_string();
             let after = line[col..].to_string();
             *line = before;
             lines.insert(row + 1, after);
         }
-        
+
         self.cursor_position = (row + 1, 0);
         self.content = lines.join("\n");
     }
@@ -408,7 +409,7 @@ impl VimEditor {
     fn insert_newline_above(&mut self) {
         let (row, _col) = self.cursor_position;
         let mut lines: Vec<String> = self.content.lines().map(|s| s.to_string()).collect();
-        
+
         lines.insert(row, String::new());
         self.cursor_position = (row, 0);
         self.content = lines.join("\n");

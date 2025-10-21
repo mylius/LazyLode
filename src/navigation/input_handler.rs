@@ -12,21 +12,9 @@ pub struct NavigationInputHandler;
 impl NavigationInputHandler {
     /// Handle a key event using the new navigation system
     pub async fn handle_key(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
-        // Handle quit first (always available)
-        if KeyCode::Char('q') == key && modifiers.is_empty() {
-            app.quit();
-            return Ok(());
-        }
+        // Quit is now handled by the navigation system mappings
 
-        // Handle search key (always available)
-        if let KeyCode::Char(c) = key {
-            if app.config.keymap.search_key == c && modifiers.is_empty() {
-                if !app.show_connection_modal {
-                    app.focus_where_input();
-                }
-                return Ok(());
-            }
-        }
+        // Search key is now handled by the navigation system mappings
 
         // Handle modal input (always available when modal is shown)
         if app.show_connection_modal {
@@ -56,6 +44,22 @@ impl NavigationInputHandler {
 
     /// Handle navigation keys through the new system
     fn handle_navigation_key(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> bool {
+        // Don't process navigation shortcuts when in insert mode, except for cursor movement
+        if app.input_mode == crate::app::InputMode::Insert {
+            // Allow cursor movement keys in insert mode
+            match key {
+                KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down => {
+                    // Let the vim editor handle cursor movement
+                    return app
+                        .navigation_manager
+                        .box_manager_mut()
+                        .vim_editor_mut()
+                        .handle_key(key, modifiers);
+                }
+                _ => return false,
+            }
+        }
+
         // Check if this key combination maps to a navigation action
         if let Some(action) = app
             .navigation_manager
@@ -78,9 +82,37 @@ impl NavigationInputHandler {
         app: &mut App,
     ) -> bool {
         match action {
+            // Mode switching actions - sync with app input mode
+            crate::navigation::types::NavigationAction::EnterInsertMode => {
+                app.input_mode = crate::app::InputMode::Insert;
+                app.navigation_manager.handle_action(action);
+                // Sync app cursor position with vim editor cursor position
+                app.cursor_position = app
+                    .navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .cursor_position();
+                true
+            }
+            crate::navigation::types::NavigationAction::EnterNormalMode => {
+                app.input_mode = crate::app::InputMode::Normal;
+                app.navigation_manager.handle_action(action)
+            }
+            crate::navigation::types::NavigationAction::EnterCommandMode => {
+                app.input_mode = crate::app::InputMode::Command;
+                app.navigation_manager.handle_action(action)
+            }
             // Movement actions - delegate to app functions
             crate::navigation::types::NavigationAction::MoveLeft => {
                 match app.active_pane {
+                    OldPane::QueryInput => {
+                        app.handle_navigation(OldNavigationAction::Direction(OldDirection::Left));
+                        // Sync vim editor cursor position with app cursor position
+                        app.navigation_manager
+                            .box_manager_mut()
+                            .vim_editor_mut()
+                            .set_cursor_position(app.cursor_position);
+                    }
                     OldPane::Results => app.move_cursor_in_results(OldDirection::Left),
                     OldPane::Connections => {
                         // In connections pane, left should collapse tree items
@@ -99,6 +131,14 @@ impl NavigationInputHandler {
             }
             crate::navigation::types::NavigationAction::MoveRight => {
                 match app.active_pane {
+                    OldPane::QueryInput => {
+                        app.handle_navigation(OldNavigationAction::Direction(OldDirection::Right));
+                        // Sync vim editor cursor position with app cursor position
+                        app.navigation_manager
+                            .box_manager_mut()
+                            .vim_editor_mut()
+                            .set_cursor_position(app.cursor_position);
+                    }
                     OldPane::Results => app.move_cursor_in_results(OldDirection::Right),
                     OldPane::Connections => {
                         // In connections pane, right should expand tree items
@@ -119,6 +159,11 @@ impl NavigationInputHandler {
                     OldPane::Connections => app.move_selection_up(),
                     OldPane::QueryInput => {
                         app.handle_navigation(OldNavigationAction::Direction(OldDirection::Up));
+                        // Sync vim editor cursor position with app cursor position
+                        app.navigation_manager
+                            .box_manager_mut()
+                            .vim_editor_mut()
+                            .set_cursor_position(app.cursor_position);
                     }
                     _ => {}
                 }
@@ -130,6 +175,11 @@ impl NavigationInputHandler {
                     OldPane::Connections => app.move_selection_down(),
                     OldPane::QueryInput => {
                         app.handle_navigation(OldNavigationAction::Direction(OldDirection::Down));
+                        // Sync vim editor cursor position with app cursor position
+                        app.navigation_manager
+                            .box_manager_mut()
+                            .vim_editor_mut()
+                            .set_cursor_position(app.cursor_position);
                     }
                     _ => {}
                 }
@@ -221,6 +271,17 @@ impl NavigationInputHandler {
                     }
                 }
             }
+            // Special actions
+            crate::navigation::types::NavigationAction::Quit => {
+                app.quit();
+                true
+            }
+            crate::navigation::types::NavigationAction::Search => {
+                if !app.show_connection_modal {
+                    app.focus_where_input();
+                }
+                true
+            }
             // Other actions - delegate to navigation manager
             _ => {
                 let handled = app.navigation_manager.handle_action(action);
@@ -235,21 +296,9 @@ impl NavigationInputHandler {
 
     /// Handle legacy key events for backward compatibility
     async fn handle_legacy_key(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
-        // Handle quit
-        if KeyCode::Char('q') == key && modifiers.is_empty() {
-            app.quit();
-            return Ok(());
-        }
+        // Quit is now handled by the navigation system mappings
 
-        // Handle search key
-        if let KeyCode::Char(c) = key {
-            if app.config.keymap.search_key == c && modifiers.is_empty() {
-                if !app.show_connection_modal {
-                    app.focus_where_input();
-                }
-                return Ok(());
-            }
-        }
+        // Search key is now handled by the navigation system mappings
 
         // Handle modal input
         if app.show_connection_modal {
@@ -294,17 +343,20 @@ impl NavigationInputHandler {
     }
 
     async fn handle_connection_modal_input_normal_mode(key: KeyCode, app: &mut App) -> Result<()> {
+        // First try the navigation system for mapped keys
+        if Self::handle_navigation_key(key, KeyModifiers::empty(), app) {
+            return Ok(());
+        }
+
+        // Fall back to modal-specific handling
         match key {
-            KeyCode::Char('i') => {
-                app.input_mode = crate::app::InputMode::Insert;
-            }
             KeyCode::Esc => {
                 app.toggle_connection_modal();
             }
-            KeyCode::Down | KeyCode::Char('j') => {
+            KeyCode::Down => {
                 app.connection_form.current_field = (app.connection_form.current_field + 1) % 7;
             }
-            KeyCode::Up | KeyCode::Char('k') => {
+            KeyCode::Up => {
                 app.connection_form.current_field = (app.connection_form.current_field + 6) % 7;
             }
             _ => {}
@@ -316,11 +368,21 @@ impl NavigationInputHandler {
         match key {
             KeyCode::Esc => {
                 app.input_mode = crate::app::InputMode::Normal;
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
             }
             KeyCode::Enter => {
                 app.save_connection();
                 app.toggle_connection_modal();
                 app.input_mode = crate::app::InputMode::Normal;
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
             }
             KeyCode::Down | KeyCode::Up => match key {
                 KeyCode::Down => {
@@ -542,6 +604,11 @@ impl NavigationInputHandler {
                         app.show_connection_modal = true;
                         app.active_block = crate::app::ActiveBlock::ConnectionModal;
                         app.input_mode = crate::app::InputMode::Normal;
+                        // Sync navigation manager's vim mode
+                        app.navigation_manager
+                            .box_manager_mut()
+                            .vim_editor_mut()
+                            .mode = crate::navigation::types::VimMode::Normal;
                     }
                 }
                 Action::Delete => {
@@ -551,13 +618,16 @@ impl NavigationInputHandler {
             }
         } else {
             match key {
-                KeyCode::Char('q') if modifiers.is_empty() => {
-                    app.quit();
-                }
+                // 'q' is now handled by the navigation system mappings
                 KeyCode::Char('a') if modifiers.is_empty() => {
                     app.show_connection_modal = true;
                     app.active_block = crate::app::ActiveBlock::ConnectionModal;
                     app.input_mode = crate::app::InputMode::Normal;
+                    // Sync navigation manager's vim mode
+                    app.navigation_manager
+                        .box_manager_mut()
+                        .vim_editor_mut()
+                        .mode = crate::navigation::types::VimMode::Normal;
                 }
                 _ => {}
             }
@@ -580,11 +650,12 @@ impl NavigationInputHandler {
                 Self::handle_query_input_normal_mode(key, modifiers, app).await
             }
             crate::app::InputMode::Insert => {
+                // In insert mode, only allow navigation keys and text editing
                 if matches!(key, KeyCode::Up | KeyCode::Down) && modifiers.is_empty() {
                     Self::handle_navigation_key(key, modifiers, app);
                     return Ok(());
                 }
-                // In insert mode, handle text editing directly
+                // Handle text editing directly - don't process shortcuts
                 Self::handle_query_input_insert_mode(key, modifiers, app).await
             }
             _ => Ok(()),
@@ -596,74 +667,12 @@ impl NavigationInputHandler {
         modifiers: KeyModifiers,
         app: &mut App,
     ) -> Result<()> {
-        // First handle query-pane Vim-like keys explicitly
-        match key {
-            KeyCode::Char('i') if modifiers.is_empty() => {
-                app.input_mode = crate::app::InputMode::Insert;
-                app.last_key_was_d = false;
-                app.awaiting_replace = false;
-                return Ok(());
-            }
-            KeyCode::Char('a') if modifiers.is_empty() => {
-                let max_pos = app.get_current_field_length();
-                if app.cursor_position.1 < max_pos {
-                    app.cursor_position.1 += 1;
-                }
-                app.input_mode = crate::app::InputMode::Insert;
-                app.last_key_was_d = false;
-                app.awaiting_replace = false;
-                return Ok(());
-            }
-            KeyCode::Char('h') | KeyCode::Left if modifiers.is_empty() => {
-                app.handle_navigation(OldNavigationAction::Direction(OldDirection::Left));
-                app.last_key_was_d = false;
-                app.awaiting_replace = false;
-                return Ok(());
-            }
-            KeyCode::Char('l') | KeyCode::Right if modifiers.is_empty() => {
-                app.handle_navigation(OldNavigationAction::Direction(OldDirection::Right));
-                app.last_key_was_d = false;
-                app.awaiting_replace = false;
-                return Ok(());
-            }
-            KeyCode::Char('k') | KeyCode::Up if modifiers.is_empty() => {
-                app.handle_navigation(OldNavigationAction::Direction(OldDirection::Up));
-                app.last_key_was_d = false;
-                app.awaiting_replace = false;
-                return Ok(());
-            }
-            KeyCode::Char('j') | KeyCode::Down if modifiers.is_empty() => {
-                app.handle_navigation(OldNavigationAction::Direction(OldDirection::Down));
-                app.last_key_was_d = false;
-                app.awaiting_replace = false;
-                return Ok(());
-            }
-            KeyCode::Char('d') if modifiers.is_empty() => {
-                if app.last_key_was_d {
-                    app.clear_current_field();
-                    app.last_key_was_d = false;
-                } else {
-                    app.delete_char_at_cursor();
-                    app.last_key_was_d = true;
-                }
-                app.awaiting_replace = false;
-                return Ok(());
-            }
-            KeyCode::Char('r') if modifiers.is_empty() => {
-                app.awaiting_replace = true;
-                app.last_key_was_d = false;
-                return Ok(());
-            }
-            KeyCode::Char(c) if modifiers.is_empty() => {
-                if app.awaiting_replace {
-                    app.replace_char_at_cursor(c);
-                    app.awaiting_replace = false;
-                    app.last_key_was_d = false;
-                    return Ok(());
-                }
-            }
-            _ => {}
+        // First try the navigation system for mapped keys
+        if Self::handle_navigation_key(key, modifiers, app) {
+            return Ok(());
         }
+
+        // All keys should now be handled by the navigation system mappings
 
         // Fallback to keymap (pane switching etc.)
         if let Some(action) = app.config.keymap.get_action(key, modifiers) {
@@ -694,12 +703,22 @@ impl NavigationInputHandler {
         match key {
             KeyCode::Esc => {
                 app.input_mode = crate::app::InputMode::Normal;
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
             }
             KeyCode::Enter => {
                 if let Err(e) = app.refresh_results().await {
                     let _ = crate::logging::error(&format!("Error refreshing results: {}", e));
                 }
                 app.input_mode = crate::app::InputMode::Normal;
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
             }
             KeyCode::Char(c) => app.insert_char(c),
             KeyCode::Backspace => app.delete_char(),
