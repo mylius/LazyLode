@@ -1,5 +1,5 @@
 use super::core::*;
-// use super::ssh_tunnel::SshTunnelProcess;
+use super::ssh_tunnel::SshTunnelProcess;
 use crate::logging;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -8,7 +8,7 @@ use tokio_postgres::{Client, NoTls};
 pub struct PostgresConnection {
     config: super::ConnectionConfig,
     client: Option<Client>,
-    // ssh_tunnel: Option<SshTunnelProcess>,
+    ssh_tunnel: Option<SshTunnelProcess>,
 }
 
 impl PostgresConnection {

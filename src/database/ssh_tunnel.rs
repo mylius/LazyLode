@@ -49,7 +49,7 @@ impl SshTunnelProcess {
         
         // Authenticate
         if let Some(private_key_path) = &ssh_config.private_key_path {
-            session.userauth_pubkey_file(&ssh_config.username, None, private_key_path, None)?;
+            session.userauth_pubkey_file(&ssh_config.username, None, std::path::Path::new(private_key_path), None)?;
         } else if let Some(password) = &ssh_config.password {
             session.userauth_password(&ssh_config.username, password)?;
         } else {
