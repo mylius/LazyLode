@@ -161,6 +161,7 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
 
     // Prepare tree items for the connection tree list
     let mut tree_items = Vec::new();
+    let mut current_visual_index = 0;
 
     for (conn_idx, connection) in app.connection_tree.iter().enumerate() {
         logging::debug(&format!(
@@ -183,8 +184,8 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
             ConnectionStatus::NotConnected => "○",
         };
 
-        // Style for connection item, highlight if selected
-        let conn_style = if app.highlight_selected_item(conn_idx) {
+        // Style for connection item, highlight if selected using visual index
+        let conn_style = if app.highlight_selected_item(current_visual_index) {
             Style::default()
                 .fg(app.config.theme.accent_color())
                 .add_modifier(Modifier::BOLD)
@@ -208,6 +209,9 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
             Span::styled(&connection.connection_config.name, conn_style), // Connection name
         ])));
 
+        // Increment visual index after rendering connection
+        current_visual_index += 1;
+
         // Render databases if connection is expanded
         if connection.is_expanded {
             logging::debug(&format!(
@@ -220,7 +224,14 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
             for (_db_idx, database) in connection.databases.iter().enumerate() {
                 let db_expanded = if database.is_expanded { "▼" } else { "▶" };
 
-                let db_style = Style::default().fg(app.config.theme.text_color());
+                // Style for database item, highlight if selected using visual index
+                let db_style = if app.highlight_selected_item(current_visual_index) {
+                    Style::default()
+                        .fg(app.config.theme.accent_color())
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(app.config.theme.text_color())
+                };
 
                 tree_items.push(ListItem::new(Line::from(vec![
                     Span::raw("  "),
@@ -229,11 +240,23 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
                     Span::styled(&database.name, db_style),
                 ])));
 
+                // Increment visual index after rendering database
+                current_visual_index += 1;
+
                 // Render schemas if database is expanded
                 if database.is_expanded {
                     for (_schema_idx, schema) in database.schemas.iter().enumerate() {
                         let schema_expanded = if schema.is_expanded { "▼" } else { "▶" }; // Expansion symbol for schema
-                        let schema_style = Style::default().fg(app.config.theme.text_color());
+                        
+                        // Style for schema item, highlight if selected using visual index
+                        let schema_style = if app.highlight_selected_item(current_visual_index) {
+                            Style::default()
+                                .fg(app.config.theme.accent_color())
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(app.config.theme.text_color())
+                        };
+
                         tree_items.push(ListItem::new(Line::from(vec![
                             Span::raw("    "),                        // Indentation
                             Span::raw(schema_expanded),               // Schema expansion symbol
@@ -241,15 +264,29 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
                             Span::styled(&schema.name, schema_style), // Schema name
                         ])));
 
+                        // Increment visual index after rendering schema
+                        current_visual_index += 1;
+
                         // Render tables if schema is expanded
                         if schema.is_expanded {
                             for table in &schema.tables {
-                                let table_style = Style::default().fg(app.config.theme.text_color());
+                                // Style for table item, highlight if selected using visual index
+                                let table_style = if app.highlight_selected_item(current_visual_index) {
+                                    Style::default()
+                                        .fg(app.config.theme.accent_color())
+                                        .add_modifier(Modifier::BOLD)
+                                } else {
+                                    Style::default().fg(app.config.theme.text_color())
+                                };
+
                                 tree_items.push(ListItem::new(Line::from(vec![
                                     Span::raw("      "),              // Indentation
                                     Span::raw("📋 "),                 // Table icon
                                     Span::styled(table, table_style), // Table name
                                 ])));
+
+                                // Increment visual index after rendering table
+                                current_visual_index += 1;
                             }
                         }
                     }
