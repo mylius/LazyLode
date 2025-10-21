@@ -27,7 +27,7 @@ use ratatui::layout::Direction as LayoutDirection;
 use ratatui::layout::{Constraint, Layout, Position, Rect};
 use ratatui::widgets::{Block, Borders};
 
-use crate::app::{App, InputMode, ActiveBlock};
+use crate::app::{App, InputMode};
 use crate::navigation::NavigationInputHandler;
 use crate::ui::types::Pane;
 
@@ -145,45 +145,9 @@ async fn run_app_tick<B: ratatui::backend::Backend>(
 
     match event::read()? {
         Event::Key(key) => {
-            // Handle quit key first
-            if KeyCode::Char('q') == key.code && key.modifiers.is_empty() {
-                app.quit();
-            }
-            
             // Use the new navigation input handler
             if let Err(e) = NavigationInputHandler::handle_key(key.code, key.modifiers, app).await {
                 let _ = logging::error(&format!("Error handling key input: {}", e));
-            }
-            
-            // Handle search key focus
-            if app.input_mode == InputMode::Normal
-                && key.modifiers.is_empty()
-                && matches_search_key(&app.config.keymap, key.code)
-            {
-                if !app.show_connection_modal {
-                    app.focus_where_input();
-                }
-                return Ok(());
-            }
-            
-            // Handle connection modal
-            if app.show_connection_modal {
-                if let ActiveBlock::ConnectionModal = app.active_block {
-                    handle_connection_modal_input(key, app).await?;
-                }
-            } else {
-                match app.input_mode {
-                    InputMode::Command => {
-                        handle_command_input(key, app).await?;
-                    }
-                    _ => {
-                        // Navigation is handled by NavigationInputHandler above
-                    }
-                }
-            }
-
-            if app.should_quit {
-                return Ok(());
             }
         }
         Event::Mouse(me) => {
@@ -194,12 +158,6 @@ async fn run_app_tick<B: ratatui::backend::Backend>(
     Ok(())
 }
 
-fn matches_search_key(keymap: &crate::input::KeyConfig, code: KeyCode) -> bool {
-    match code {
-        KeyCode::Char(c) => c == keymap.search_key,
-        _ => false,
-    }
-}
 
 async fn handle_connection_modal_input(key: KeyEvent, app: &mut App) -> Result<(), io::Error> {
     match app.input_mode {
