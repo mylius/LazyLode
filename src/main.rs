@@ -18,6 +18,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use futures::executor;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::cmp::{max, min};
 use std::io;
@@ -538,9 +539,55 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                 let relative_y = y - conn_list_inner.y;
                 let item_index = relative_y as usize;
                 
-                // Only allow selection of connection items (not databases, schemas, or tables)
-                if item_index < app.connection_tree.len() {
-                    app.selected_connection_idx = Some(item_index);
+                // Calculate the visual index properly by counting visible items
+                let mut current_visual_index = 0;
+                let mut found_index = None;
+                
+                for (conn_idx, connection) in app.connection_tree.iter().enumerate() {
+                    if current_visual_index == item_index {
+                        found_index = Some(current_visual_index);
+                        break;
+                    }
+                    current_visual_index += 1;
+                    
+                    if connection.is_expanded {
+                        for (_db_idx, database) in connection.databases.iter().enumerate() {
+                            if current_visual_index == item_index {
+                                found_index = Some(current_visual_index);
+                                break;
+                            }
+                            current_visual_index += 1;
+                            
+                            if database.is_expanded {
+                                for (_schema_idx, schema) in database.schemas.iter().enumerate() {
+                                    if current_visual_index == item_index {
+                                        found_index = Some(current_visual_index);
+                                        break;
+                                    }
+                                    current_visual_index += 1;
+                                    
+                                    if schema.is_expanded {
+                                        for _table in &schema.tables {
+                                            if current_visual_index == item_index {
+                                                found_index = Some(current_visual_index);
+                                                break;
+                                            }
+                                            current_visual_index += 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if let Some(visual_index) = found_index {
+                    app.selected_connection_idx = Some(visual_index);
+                    
+                    // Also trigger the tree action to open/expand the item
+                    if let Err(e) = executor::block_on(app.handle_tree_action(crate::input::TreeAction::Expand)) {
+                        let _ = logging::error(&format!("Error expanding tree item: {}", e));
+                    }
                 }
             }
 
@@ -605,8 +652,9 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
             Pane::Connections => {
                 if app.selected_connection_idx.is_some() {
                     let current = app.selected_connection_idx.unwrap();
+                    let total_visible_items = app.get_total_visible_items();
                     app.selected_connection_idx =
-                        Some(min(app.config.connections.len().saturating_sub(1), current + 1));
+                        Some(min(total_visible_items.saturating_sub(1), current + 1));
                 }
             }
             Pane::Results => {
