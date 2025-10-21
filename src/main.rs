@@ -616,12 +616,41 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                         let relative_x = x - results_area.x;
                         let relative_y = y - results_area.y;
                         
-                        // Convert click coordinates to cursor position
-                        let col = relative_x as usize;
-                        let row = relative_y as usize;
+                        // Account for table structure: borders, header, and line number column
+                        let table_inner_x = relative_x.saturating_sub(1); // Account for left border
+                        let table_inner_y = relative_y.saturating_sub(1); // Account for top border and header
                         
-                        // Clamp to valid ranges
-                        app.cursor_position.0 = col.min(result.columns.len().saturating_sub(1));
+                        // Calculate line number column width
+                        let max_lines = result.rows.len();
+                        let line_num_width = max_lines.to_string().len().max(3) as u16;
+                        let first_col_width = line_num_width + 1; // +1 for padding
+                        
+                        // Check if click is in the line number column
+                        if table_inner_x < first_col_width {
+                            // Click is in line number column, select first data column
+                            app.cursor_position.0 = 0;
+                        } else {
+                            // Click is in data area, calculate which data column
+                            let data_x = table_inner_x - first_col_width;
+                            
+                            // Calculate column widths (simplified - assumes equal width columns)
+                            let data_cols = result.columns.len() as u16;
+                            if data_cols > 0 {
+                                let available_width = results_area.width.saturating_sub(first_col_width).saturating_sub(2); // Account for borders
+                                let col_width = available_width / data_cols;
+                                let col = (data_x / col_width) as usize;
+                                app.cursor_position.0 = col.min(result.columns.len().saturating_sub(1));
+                            } else {
+                                app.cursor_position.0 = 0;
+                            }
+                        }
+                        
+                        // Calculate row (account for header row)
+                        let row = if table_inner_y > 0 {
+                            (table_inner_y - 1) as usize // -1 for header row
+                        } else {
+                            0
+                        };
                         app.cursor_position.1 = row.min(result.rows.len().saturating_sub(1));
                     }
                 }
@@ -630,10 +659,21 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
             // Check if click is in tabs area
             if let Some(tabs_rect) = tabs_area {
                 if tabs_rect.contains(Position::new(x, y)) {
-                    let tab_width = tabs_rect.width / app.result_tabs.len() as u16;
-                    let tab_index = ((x - tabs_rect.x) / tab_width) as usize;
-                    if tab_index < app.result_tabs.len() {
-                        app.selected_result_tab_index = Some(tab_index);
+                    // Simple tab selection based on click position
+                    let relative_x = x - tabs_rect.x;
+                    let tab_count = app.result_tabs.len();
+                    
+                    if tab_count > 0 {
+                        // Calculate approximate tab width
+                        let tab_width = tabs_rect.width / tab_count as u16;
+                        let tab_index = (relative_x / tab_width) as usize;
+                        
+                        // Ensure we don't exceed the number of tabs
+                        if tab_index < tab_count {
+                            app.selected_result_tab_index = Some(tab_index);
+                            // Reset cursor position when switching tabs
+                            app.cursor_position = (0, 0);
+                        }
                     }
                 }
             }
