@@ -537,7 +537,9 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
             if conn_list_inner.contains(Position::new(x, y)) {
                 let relative_y = y - conn_list_inner.y;
                 let item_index = relative_y as usize;
-                if item_index < app.config.connections.len() {
+                
+                // Only allow selection of connection items (not databases, schemas, or tables)
+                if item_index < app.connection_tree.len() {
                     app.selected_connection_idx = Some(item_index);
                 }
             }
