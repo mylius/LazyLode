@@ -39,7 +39,7 @@ impl SshTunnelProcess {
         ssh_config: SSHConfig,
         remote_host: String,
         remote_port: u16,
-        mut listener: TcpListener,
+        listener: TcpListener,
     ) -> Result<()> {
         // Connect to SSH server
         let tcp = TcpStream::connect(format!("{}:{}", ssh_config.host, ssh_config.port))?;
@@ -56,21 +56,101 @@ impl SshTunnelProcess {
             return Err(anyhow::anyhow!("No authentication method provided for SSH tunnel"));
         }
         
-        // Create port forward
-        let mut channel = session.channel_direct_tcpip(&remote_host, remote_port, None)?;
-        
         // Accept connections and forward them
         loop {
-            let (mut local_stream, _) = listener.accept().await?;
+            let (local_stream, _) = listener.accept().await?;
             
-            // For now, just keep the tunnel alive
-            // In a full implementation, we would forward data between local_stream and channel
+            // Create a new SSH channel for each connection
+            let mut channel = session.channel_direct_tcpip(&remote_host, remote_port, None)?;
+            
+            // Forward data between local and remote connections
             tokio::spawn(async move {
-                let _ = local_stream;
-                // Keep the connection alive
-                tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
+                if let Err(e) = Self::forward_data(local_stream, channel).await {
+                    let _ = crate::logging::error(&format!("SSH tunnel forwarding error: {}", e));
+                }
             });
         }
+    }
+    
+    async fn forward_data(
+        mut local_stream: tokio::net::TcpStream,
+        channel: ssh2::Channel,
+    ) -> Result<()> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use std::io::{Read, Write};
+        
+        let (mut local_read, mut local_write) = local_stream.split();
+        
+        // Forward data from local to remote
+        let local_to_remote = async {
+            let mut buffer = [0; 4096];
+            loop {
+                match local_read.read(&mut buffer).await {
+                    Ok(0) => break, // EOF
+                    Ok(n) => {
+                        // Use blocking task for SSH channel operations
+                        if let Err(e) = tokio::task::spawn_blocking({
+                            let channel = channel.clone();
+                            let data = buffer[..n].to_vec();
+                            move || {
+                                let mut channel = channel;
+                                channel.write_all(&data)?;
+                                channel.flush()?;
+                                Ok::<(), std::io::Error>(())
+                            }
+                        }).await.unwrap() {
+                            let _ = crate::logging::error(&format!("Error writing to SSH channel: {}", e));
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = crate::logging::error(&format!("Error reading from local stream: {}", e));
+                        break;
+                    }
+                }
+            }
+        };
+        
+        // Forward data from remote to local
+        let remote_to_local = async {
+            let mut buffer = [0; 4096];
+            loop {
+                // Use blocking task for SSH channel operations
+                let result = tokio::task::spawn_blocking({
+                    let channel = channel.clone();
+                    move || {
+                        let mut channel = channel;
+                        channel.read(&mut buffer)
+                    }
+                }).await.unwrap();
+                
+                match result {
+                    Ok(0) => break, // EOF
+                    Ok(n) => {
+                        if let Err(e) = local_write.write_all(&buffer[..n]).await {
+                            let _ = crate::logging::error(&format!("Error writing to local stream: {}", e));
+                            break;
+                        }
+                        if let Err(e) = local_write.flush().await {
+                            let _ = crate::logging::error(&format!("Error flushing local stream: {}", e));
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = crate::logging::error(&format!("Error reading from SSH channel: {}", e));
+                        break;
+                    }
+                }
+            }
+        };
+        
+        // Run both directions concurrently
+        tokio::select! {
+            _ = local_to_remote => {},
+            _ = remote_to_local => {},
+        }
+        
+        Ok(())
     }
     
     pub fn local_port(&self) -> u16 {
