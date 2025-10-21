@@ -6,15 +6,5 @@ pub enum Direction {
     Down,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)] // Remove Default derive
-pub enum Pane {
-    Connections,
-    QueryInput,
-    Results,
-}
-
-impl Default for Pane {
-    fn default() -> Self {
-        Pane::Connections
-    }
-}
+// Re-export Pane from navigation module to avoid duplication
+pub use crate::navigation::types::Pane;

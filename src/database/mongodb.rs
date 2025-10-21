@@ -150,7 +150,8 @@ impl DatabaseConnection for MongoConnection {
             self.ssh_tunnel = Some(tunnel);
         }
         let client = self.setup_connection().await?;
-        self.current_db = Some(client.database(self.config.default_database.as_deref().unwrap_or("admin")));
+        self.current_db =
+            Some(client.database(self.config.default_database.as_deref().unwrap_or("admin")));
         self.client = Some(client);
         Ok(())
     }

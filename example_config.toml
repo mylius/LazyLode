@@ -1,0 +1,56 @@
+# Example configuration with the new database structure
+
+[[connections]]
+name = "Hari Staging RDS"
+db_type = "Postgres"
+host = "hari-staging.cckollfnseis.eu-central-1.rds.amazonaws.com"
+port = 5432
+username = "postgres"
+password = "some secret password"
+default_database = "develop_0"  # Default database for connection context
+
+# Configure specific databases with their schemas
+[connections.databases]
+# Show all schemas for develop_0
+develop_0 = { schemas = [], auto_expand = false }
+
+# Only show specific schemas for staging
+staging = { schemas = ["public", "analytics"], auto_expand = true }
+
+# Show all schemas for production but don't auto-expand
+production = { schemas = [], auto_expand = false }
+
+# Example with MongoDB
+[[connections]]
+name = "MongoDB Production"
+db_type = "MongoDB"
+host = "mongodb.example.com"
+port = 27017
+username = "admin"
+password = "secret"
+default_database = "admin"
+
+[connections.databases]
+# Show all collections for these databases
+myapp = { schemas = [], auto_expand = false }
+logs = { schemas = [], auto_expand = false }
+analytics = { schemas = [], auto_expand = true }
+
+# Example with SQLite
+[[connections]]
+name = "Local SQLite"
+db_type = "Sqlite"
+# For SQLite, put the database file path in default_database
+default_database = "./my_local.db"
+[connections.databases]
+main = { schemas = [], auto_expand = true }
+
+# Legacy format still works (backward compatibility)
+[[connections]]
+name = "Legacy Connection"
+db_type = "Postgres"
+host = "localhost"
+port = 5432
+username = "user"
+password = "pass"
+database = "mydb"  # This will be migrated to default_database and added to databases

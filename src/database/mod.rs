@@ -4,8 +4,6 @@ pub use core::{DatabaseConnection, QueryParams, QueryResult};
 // Database implementations
 mod mongodb;
 mod postgres;
-pub use mongodb::MongoConnection;
-pub use postgres::PostgresConnection;
 
 // SSH tunneling support
 pub mod ssh_tunnel;
@@ -16,7 +14,6 @@ pub use factory::{ConnectionManager, PrefetchedDatabase, PrefetchedSchema, Prefe
 
 // Error handling
 pub mod error;
-pub use error::{DatabaseError, DatabaseResult};
 
 // Common types and configurations
 use serde::{Deserialize, Serialize};

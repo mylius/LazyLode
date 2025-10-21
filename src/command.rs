@@ -49,6 +49,11 @@ impl CommandBuffer {
         self.buffer.clear();
     }
 
+    // Remove the last character from the buffer
+    pub fn pop(&mut self) {
+        self.buffer.pop();
+    }
+
     // Get the current length of the buffer
     pub fn len(&self) -> usize {
         self.buffer.len()

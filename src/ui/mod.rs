@@ -53,13 +53,11 @@ pub fn render(frame: &mut Frame, app: &App) {
 
 /// Renders the status bar at the top of the UI.
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let mode = match app.input_mode {
-        InputMode::Normal => "NORMAL",
-        InputMode::Insert => "INSERT",
-        InputMode::Command => "COMMAND",
-    };
+    // Use new navigation system mode indicator
+    let mode = app.navigation_manager.get_mode_indicator();
+    let nav_info = app.navigation_manager.get_navigation_info();
 
-    // Create status text, including current mode, theme, and status message
+    // Create status text, including current mode, navigation info, theme, and status message
     let theme_info = if app.input_mode == InputMode::Command && app.selected_suggestion.is_some() {
         if let Some(suggestion) = app.get_selected_suggestion() {
             if suggestion.starts_with("theme ") {
@@ -87,8 +85,9 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let status = Line::from(format!(
-        "{} | {}{}{}",
+        "{} | {} | {}{}{}",
         mode,
+        nav_info,
         app.status_message.as_deref().unwrap_or(""),
         tab_info,
         theme_info
@@ -136,8 +135,15 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
         ])
         .split(area);
 
+    // Show navigation info if this is the active pane
+    let nav_info = if app.active_pane == Pane::Connections {
+        format!(" [{}]", app.navigation_manager.get_navigation_info())
+    } else {
+        String::new()
+    };
+
     // Render header paragraph
-    let header = Line::from("Connections (press 'a' to add)");
+    let header = Line::from(format!("Connections (press 'a' to add){}", nav_info));
     let mut block = Block::default().borders(Borders::ALL).style(
         Style::default()
             .fg(app.config.theme.text_color())
@@ -149,11 +155,13 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
         block = block.border_style(Style::default().fg(app.config.theme.accent_color()));
     }
 
+    // nav_info computed above
+
     frame.render_widget(Paragraph::new(header).block(block), chunks[0]);
 
     // Prepare tree items for the connection tree list
     let mut tree_items = Vec::new();
-    let mut visible_index = 0; // Track visible index for highlighting selected item
+    let mut current_visual_index = 0;
 
     for (conn_idx, connection) in app.connection_tree.iter().enumerate() {
         logging::debug(&format!(
@@ -176,8 +184,8 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
             ConnectionStatus::NotConnected => "○",
         };
 
-        // Style for connection item, highlight if selected
-        let conn_style = if app.highlight_selected_item(visible_index) {
+        // Style for connection item, highlight if selected using visual index
+        let conn_style = if app.highlight_selected_item(current_visual_index) {
             Style::default()
                 .fg(app.config.theme.accent_color())
                 .add_modifier(Modifier::BOLD)
@@ -200,7 +208,9 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
             Span::raw(" "),
             Span::styled(&connection.connection_config.name, conn_style), // Connection name
         ])));
-        visible_index += 1; // Increment visible index after connection
+
+        // Increment visual index after rendering connection
+        current_visual_index += 1;
 
         // Render databases if connection is expanded
         if connection.is_expanded {
@@ -214,7 +224,8 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
             for (_db_idx, database) in connection.databases.iter().enumerate() {
                 let db_expanded = if database.is_expanded { "▼" } else { "▶" };
 
-                let db_style = if app.highlight_selected_item(visible_index) {
+                // Style for database item, highlight if selected using visual index
+                let db_style = if app.highlight_selected_item(current_visual_index) {
                     Style::default()
                         .fg(app.config.theme.accent_color())
                         .add_modifier(Modifier::BOLD)
@@ -228,45 +239,54 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
                     Span::raw(" 🗄 "),
                     Span::styled(&database.name, db_style),
                 ])));
-                visible_index += 1; // Increment visible index after database
+
+                // Increment visual index after rendering database
+                current_visual_index += 1;
 
                 // Render schemas if database is expanded
                 if database.is_expanded {
                     for (_schema_idx, schema) in database.schemas.iter().enumerate() {
                         let schema_expanded = if schema.is_expanded { "▼" } else { "▶" }; // Expansion symbol for schema
-                        let schema_style = if app.highlight_selected_item(visible_index) {
-                            // Style for schema item, highlight if selected
+                        
+                        // Style for schema item, highlight if selected using visual index
+                        let schema_style = if app.highlight_selected_item(current_visual_index) {
                             Style::default()
                                 .fg(app.config.theme.accent_color())
                                 .add_modifier(Modifier::BOLD)
                         } else {
                             Style::default().fg(app.config.theme.text_color())
                         };
+
                         tree_items.push(ListItem::new(Line::from(vec![
                             Span::raw("    "),                        // Indentation
                             Span::raw(schema_expanded),               // Schema expansion symbol
                             Span::raw(" 📁 "),                        // Schema icon
                             Span::styled(&schema.name, schema_style), // Schema name
                         ])));
-                        visible_index += 1; // Increment visible index after schema
+
+                        // Increment visual index after rendering schema
+                        current_visual_index += 1;
 
                         // Render tables if schema is expanded
                         if schema.is_expanded {
                             for table in &schema.tables {
-                                let table_style = if app.highlight_selected_item(visible_index) {
-                                    // Style for table item, highlight if selected
+                                // Style for table item, highlight if selected using visual index
+                                let table_style = if app.highlight_selected_item(current_visual_index) {
                                     Style::default()
                                         .fg(app.config.theme.accent_color())
                                         .add_modifier(Modifier::BOLD)
                                 } else {
                                     Style::default().fg(app.config.theme.text_color())
                                 };
+
                                 tree_items.push(ListItem::new(Line::from(vec![
                                     Span::raw("      "),              // Indentation
                                     Span::raw("📋 "),                 // Table icon
                                     Span::styled(table, table_style), // Table name
                                 ])));
-                                visible_index += 1; // Increment visible index after table
+
+                                // Increment visual index after rendering table
+                                current_visual_index += 1;
                             }
                         }
                     }
@@ -311,9 +331,17 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
 
     let query_state = app.current_query_state();
 
+    // Show navigation info for query input
+    let query_nav_info = if app.active_pane == Pane::QueryInput {
+        format!(" [{}]", app.navigation_manager.get_navigation_info())
+    } else {
+        String::new()
+    };
+
     // WHERE clause
+    let where_title = format!("WHERE{}", query_nav_info);
     let mut where_block = Block::default()
-        .title("WHERE")
+        .title(where_title)
         .borders(Borders::ALL)
         .title_style(
             Style::default()
@@ -355,7 +383,13 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
             && app.input_mode == InputMode::Insert
         {
             let mut content = state.where_clause.clone();
-            content.insert(app.cursor_position.1, '|'); // Add cursor
+            // Convert character position to byte position safely
+            let byte_pos = content
+                .char_indices()
+                .nth(app.cursor_position.1)
+                .map(|(pos, _)| pos)
+                .unwrap_or(content.len());
+            content.insert(byte_pos, '|'); // Add cursor
             content
         } else {
             state.where_clause.clone()
@@ -389,7 +423,13 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
             && app.input_mode == InputMode::Insert
         {
             let mut content = state.order_by_clause.clone();
-            content.insert(app.cursor_position.1, '|'); // Add cursor
+            // Convert character position to byte position safely
+            let byte_pos = content
+                .char_indices()
+                .nth(app.cursor_position.1)
+                .map(|(pos, _)| pos)
+                .unwrap_or(content.len());
+            content.insert(byte_pos, '|'); // Add cursor
             content
         } else {
             state.order_by_clause.clone()
@@ -522,8 +562,15 @@ fn render_result_tabs(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Renders the results table.
 fn render_results(frame: &mut Frame, app: &App, area: Rect) {
+    let results_nav_info = if app.active_pane == Pane::Results {
+        format!(" [{}]", app.navigation_manager.get_navigation_info())
+    } else {
+        String::new()
+    };
+
+    let results_title = format!("Results{}", results_nav_info);
     let mut block = Block::default()
-        .title("Results")
+        .title(results_title)
         .borders(Borders::ALL)
         .title_style(
             Style::default()
