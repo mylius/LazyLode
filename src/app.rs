@@ -695,48 +695,46 @@ impl App {
 
     /// Handles tree-related actions such as expand and collapse.
     pub async fn handle_tree_action(&mut self, action: TreeAction) -> Result<()> {
-        if self.active_pane == Pane::Connections {
-            if let Some(idx) = self.selected_connection_idx {
-                match action {
-                    TreeAction::Expand => {
-                        logging::debug(&format!("Expanding connection at visual index {}", idx))
-                            .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
-                        self.toggle_tree_item(idx).await?;
-                    }
-                    TreeAction::Collapse => {
-                        // Just collapse without making any async calls
-                        if let Some(tree_item) = self.get_tree_item_at_visual_index(idx) {
-                            match tree_item {
-                                TreeItem::Connection(conn_idx) => {
-                                    if let Some(connection) = self.connection_tree.get_mut(conn_idx)
-                                    {
-                                        connection.is_expanded = false;
-                                    }
+        if let Some(idx) = self.selected_connection_idx {
+            match action {
+                TreeAction::Expand => {
+                    logging::debug(&format!("Expanding connection at visual index {}", idx))
+                        .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+                    self.toggle_tree_item(idx).await?;
+                }
+                TreeAction::Collapse => {
+                    // Just collapse without making any async calls
+                    if let Some(tree_item) = self.get_tree_item_at_visual_index(idx) {
+                        match tree_item {
+                            TreeItem::Connection(conn_idx) => {
+                                if let Some(connection) = self.connection_tree.get_mut(conn_idx)
+                                {
+                                    connection.is_expanded = false;
                                 }
-                                TreeItem::Database(conn_idx, db_idx) => {
-                                    if let Some(connection) = self.connection_tree.get_mut(conn_idx)
-                                    {
-                                        if let Some(database) = connection.databases.get_mut(db_idx)
-                                        {
-                                            database.is_expanded = false;
-                                        }
-                                    }
-                                }
-                                TreeItem::Schema(conn_idx, db_idx, schema_idx) => {
-                                    if let Some(connection) = self.connection_tree.get_mut(conn_idx)
-                                    {
-                                        if let Some(database) = connection.databases.get_mut(db_idx)
-                                        {
-                                            if let Some(schema) =
-                                                database.schemas.get_mut(schema_idx)
-                                            {
-                                                schema.is_expanded = false;
-                                            }
-                                        }
-                                    }
-                                }
-                                TreeItem::Table(_, _, _, _) => {} // Tables don't expand/collapse
                             }
+                            TreeItem::Database(conn_idx, db_idx) => {
+                                if let Some(connection) = self.connection_tree.get_mut(conn_idx)
+                                {
+                                    if let Some(database) = connection.databases.get_mut(db_idx)
+                                    {
+                                        database.is_expanded = false;
+                                    }
+                                }
+                            }
+                            TreeItem::Schema(conn_idx, db_idx, schema_idx) => {
+                                if let Some(connection) = self.connection_tree.get_mut(conn_idx)
+                                {
+                                    if let Some(database) = connection.databases.get_mut(db_idx)
+                                    {
+                                        if let Some(schema) =
+                                            database.schemas.get_mut(schema_idx)
+                                        {
+                                            schema.is_expanded = false;
+                                        }
+                                    }
+                                }
+                            }
+                            TreeItem::Table(_, _, _, _) => {} // Tables don't expand/collapse
                         }
                     }
                 }

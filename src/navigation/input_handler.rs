@@ -220,7 +220,14 @@ impl NavigationInputHandler {
                 }
             }
             // Other actions - delegate to navigation manager
-            _ => app.navigation_manager.handle_action(action),
+            _ => {
+                let handled = app.navigation_manager.handle_action(action);
+                if handled {
+                    // Sync app's active_pane with navigation manager's state
+                    app.active_pane = app.navigation_manager.get_active_pane();
+                }
+                handled
+            }
         }
     }
 

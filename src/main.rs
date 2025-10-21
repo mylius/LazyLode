@@ -583,6 +583,10 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                 
                 if let Some(visual_index) = found_index {
                     app.selected_connection_idx = Some(visual_index);
+                    app.active_pane = Pane::Connections;
+                    app.input_mode = InputMode::Normal;
+                    app.last_key_was_d = false;
+                    app.awaiting_replace = false;
                     
                     // Also trigger the tree action to open/expand the item
                     if let Err(e) = executor::block_on(app.handle_tree_action(crate::input::TreeAction::Expand)) {
@@ -595,11 +599,32 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
             if query_area.contains(Position::new(x, y)) {
                 app.active_pane = Pane::QueryInput;
                 app.input_mode = InputMode::Insert;
+                app.last_key_was_d = false;
+                app.awaiting_replace = false;
             }
 
             // Check if click is in results area
             if results_area.contains(Position::new(x, y)) {
                 app.active_pane = Pane::Results;
+                app.input_mode = InputMode::Normal;
+                app.last_key_was_d = false;
+                app.awaiting_replace = false;
+                
+                // Calculate cursor position based on click coordinates
+                if let Some(selected_tab_index) = app.selected_result_tab_index {
+                    if let Some((_, result, _)) = app.result_tabs.get(selected_tab_index) {
+                        let relative_x = x - results_area.x;
+                        let relative_y = y - results_area.y;
+                        
+                        // Convert click coordinates to cursor position
+                        let col = relative_x as usize;
+                        let row = relative_y as usize;
+                        
+                        // Clamp to valid ranges
+                        app.cursor_position.0 = col.min(result.columns.len().saturating_sub(1));
+                        app.cursor_position.1 = row.min(result.rows.len().saturating_sub(1));
+                    }
+                }
             }
 
             // Check if click is in tabs area
