@@ -1,0 +1,133 @@
+# Example configuration for LazyLode with new navigation system
+
+theme = "catppuccin_mocha"
+
+[database]
+default_port_postgres = 5432
+default_port_mongodb = 27017
+
+# Navigation configuration
+[navigation]
+default_editing_mode = "Vim"  # or "Cursor"
+
+# Key mapping configuration
+[navigation.key_mapping]
+# Pane navigation
+"c" = "FocusConnections"
+"q" = "FocusQueryInput"
+"r" = "FocusResults"
+"s" = "FocusSchemaExplorer"
+":" = "FocusCommandLine"
+
+# Directional pane navigation
+"Shift+h" = "FocusPaneLeft"
+"Shift+l" = "FocusPaneRight"
+"Shift+k" = "FocusPaneUp"
+"Shift+j" = "FocusPaneDown"
+
+# Alternative pane navigation with Ctrl
+"Ctrl+c" = "FocusConnections"
+"Ctrl+q" = "FocusQueryInput"
+"Ctrl+r" = "FocusResults"
+"Ctrl+s" = "FocusSchemaExplorer"
+
+# Box navigation
+"t" = "FocusTextInput"
+"d" = "FocusDataTable"
+"v" = "FocusTreeView"
+"l" = "FocusListView"
+
+# Movement
+"h" = "MoveLeft"
+"j" = "MoveDown"
+"k" = "MoveUp"
+"l" = "MoveRight"
+"Left" = "MoveLeft"
+"Right" = "MoveRight"
+"Up" = "MoveUp"
+"Down" = "MoveDown"
+
+# Vim modes
+"i" = "EnterInsertMode"
+"a" = "EnterInsertMode"
+"v" = "EnterVisualMode"
+":" = "EnterCommandMode"
+"Esc" = "EnterNormalMode"
+
+# Edit mode switching
+"e" = "EnterEditMode"
+"Ctrl+v" = "ToggleViewEditMode"
+
+# Text editing
+"Backspace" = "DeleteCharBefore"
+"Delete" = "DeleteChar"
+"x" = "DeleteChar"
+"r" = "ReplaceChar"
+
+# Copy/paste
+"Ctrl+c" = "Copy"
+"Ctrl+v" = "Paste"
+"Ctrl+x" = "Cut"
+
+# Special actions
+"q" = "Quit"
+"Enter" = "Confirm"
+"Esc" = "Cancel"
+"/" = "Search"
+
+# Vim configuration
+[navigation.vim_config]
+show_mode_indicator = true
+
+# Cursor configuration
+[navigation.cursor_config]
+show_cursor = true
+cursor_style = "Bar"  # "Block", "Bar", or "Underline"
+
+# Keymap configuration (legacy)
+[keymap]
+left_key = 'h'
+right_key = 'l'
+up_key = 'k'
+down_key = 'j'
+connections_key = 'c'
+query_key = 'q'
+data_key = 'd'
+sort_key = 's'
+next_tab_key = 'n'
+prev_tab_key = 'p'
+first_page_key = 'g'
+last_page_key = 'G'
+next_page_key = '.'
+prev_page_key = ','
+search_key = '/'
+edit_key = 'e'
+delete_key = 'd'
+copy_key = 'y'
+pane_modifier = "Shift"
+follow_fk_key = 'l'
+
+# SSH tunnel profiles
+[[ssh_tunnels]]
+name = "hari-staging-tunnel"
+host = "auth-develop.qm-annotations.com"
+port = 22
+username = "ubuntu"
+password = "your-ssh-password"  # Replace with your actual SSH password
+# OR use private key authentication:
+# private_key_path = "/path/to/your/private/key"
+
+# Database connections
+[[connections]]
+name = "Hari Staging RDS"
+db_type = "Postgres"
+host = "hari-staging.cckollfnseis.eu-central-1.rds.amazonaws.com"
+port = 5432
+username = "postgres"
+password = "some password"
+default_database = "develop_0"
+ssh_tunnel_name = "hari-staging-tunnel"
+
+[connections.databases]
+develop_0 = { schemas = ["bb_projects"], auto_expand = false }
+staging = { schemas = ["bb_projects"], auto_expand = false }
