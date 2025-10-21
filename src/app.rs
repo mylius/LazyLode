@@ -685,6 +685,11 @@ impl App {
         self.active_pane = Pane::QueryInput;
         self.input_mode = InputMode::Insert;
         self.cursor_position.0 = 0;
+        // Sync navigation manager's vim mode
+        self.navigation_manager
+            .box_manager_mut()
+            .vim_editor_mut()
+            .mode = crate::navigation::types::VimMode::Insert;
         let len = self
             .current_query_state()
             .map(|state| state.where_clause.len())
@@ -1715,6 +1720,11 @@ impl App {
     pub fn focus_connections(&mut self) {
         self.active_pane = Pane::Connections;
         self.input_mode = InputMode::Normal;
+        // Sync navigation manager's vim mode
+        self.navigation_manager
+            .box_manager_mut()
+            .vim_editor_mut()
+            .mode = crate::navigation::types::VimMode::Normal;
         self.last_key_was_d = false;
         self.awaiting_replace = false;
         self.navigation_manager
@@ -1726,6 +1736,11 @@ impl App {
         self.input_mode = InputMode::Insert;
         self.last_key_was_d = false;
         self.awaiting_replace = false;
+        // Sync navigation manager's vim mode
+        self.navigation_manager
+            .box_manager_mut()
+            .vim_editor_mut()
+            .mode = crate::navigation::types::VimMode::Insert;
         self.cursor_position = match field {
             QueryField::Where => (0, position),
             QueryField::OrderBy => (1, position),
@@ -1737,6 +1752,11 @@ impl App {
     pub fn focus_results(&mut self, column: usize, row: usize) {
         self.active_pane = Pane::Results;
         self.input_mode = InputMode::Normal;
+        // Sync navigation manager's vim mode
+        self.navigation_manager
+            .box_manager_mut()
+            .vim_editor_mut()
+            .mode = crate::navigation::types::VimMode::Normal;
         self.last_key_was_d = false;
         self.awaiting_replace = false;
         self.cursor_position = (column, row);

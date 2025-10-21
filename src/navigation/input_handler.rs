@@ -56,6 +56,11 @@ impl NavigationInputHandler {
 
     /// Handle navigation keys through the new system
     fn handle_navigation_key(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> bool {
+        // Don't process navigation shortcuts when in insert mode
+        if app.input_mode == crate::app::InputMode::Insert {
+            return false;
+        }
+
         // Check if this key combination maps to a navigation action
         if let Some(action) = app
             .navigation_manager
@@ -78,6 +83,19 @@ impl NavigationInputHandler {
         app: &mut App,
     ) -> bool {
         match action {
+            // Mode switching actions - sync with app input mode
+            crate::navigation::types::NavigationAction::EnterInsertMode => {
+                app.input_mode = crate::app::InputMode::Insert;
+                app.navigation_manager.handle_action(action)
+            }
+            crate::navigation::types::NavigationAction::EnterNormalMode => {
+                app.input_mode = crate::app::InputMode::Normal;
+                app.navigation_manager.handle_action(action)
+            }
+            crate::navigation::types::NavigationAction::EnterCommandMode => {
+                app.input_mode = crate::app::InputMode::Command;
+                app.navigation_manager.handle_action(action)
+            }
             // Movement actions - delegate to app functions
             crate::navigation::types::NavigationAction::MoveLeft => {
                 match app.active_pane {
@@ -316,11 +334,21 @@ impl NavigationInputHandler {
         match key {
             KeyCode::Esc => {
                 app.input_mode = crate::app::InputMode::Normal;
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
             }
             KeyCode::Enter => {
                 app.save_connection();
                 app.toggle_connection_modal();
                 app.input_mode = crate::app::InputMode::Normal;
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
             }
             KeyCode::Down | KeyCode::Up => match key {
                 KeyCode::Down => {
@@ -542,6 +570,11 @@ impl NavigationInputHandler {
                         app.show_connection_modal = true;
                         app.active_block = crate::app::ActiveBlock::ConnectionModal;
                         app.input_mode = crate::app::InputMode::Normal;
+                        // Sync navigation manager's vim mode
+                        app.navigation_manager
+                            .box_manager_mut()
+                            .vim_editor_mut()
+                            .mode = crate::navigation::types::VimMode::Normal;
                     }
                 }
                 Action::Delete => {
@@ -558,6 +591,11 @@ impl NavigationInputHandler {
                     app.show_connection_modal = true;
                     app.active_block = crate::app::ActiveBlock::ConnectionModal;
                     app.input_mode = crate::app::InputMode::Normal;
+                    // Sync navigation manager's vim mode
+                    app.navigation_manager
+                        .box_manager_mut()
+                        .vim_editor_mut()
+                        .mode = crate::navigation::types::VimMode::Normal;
                 }
                 _ => {}
             }
@@ -580,11 +618,12 @@ impl NavigationInputHandler {
                 Self::handle_query_input_normal_mode(key, modifiers, app).await
             }
             crate::app::InputMode::Insert => {
+                // In insert mode, only allow navigation keys and text editing
                 if matches!(key, KeyCode::Up | KeyCode::Down) && modifiers.is_empty() {
                     Self::handle_navigation_key(key, modifiers, app);
                     return Ok(());
                 }
-                // In insert mode, handle text editing directly
+                // Handle text editing directly - don't process shortcuts
                 Self::handle_query_input_insert_mode(key, modifiers, app).await
             }
             _ => Ok(()),
@@ -600,6 +639,11 @@ impl NavigationInputHandler {
         match key {
             KeyCode::Char('i') if modifiers.is_empty() => {
                 app.input_mode = crate::app::InputMode::Insert;
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Insert;
                 app.last_key_was_d = false;
                 app.awaiting_replace = false;
                 return Ok(());
@@ -610,6 +654,11 @@ impl NavigationInputHandler {
                     app.cursor_position.1 += 1;
                 }
                 app.input_mode = crate::app::InputMode::Insert;
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Insert;
                 app.last_key_was_d = false;
                 app.awaiting_replace = false;
                 return Ok(());
@@ -694,12 +743,22 @@ impl NavigationInputHandler {
         match key {
             KeyCode::Esc => {
                 app.input_mode = crate::app::InputMode::Normal;
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
             }
             KeyCode::Enter => {
                 if let Err(e) = app.refresh_results().await {
                     let _ = crate::logging::error(&format!("Error refreshing results: {}", e));
                 }
                 app.input_mode = crate::app::InputMode::Normal;
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
             }
             KeyCode::Char(c) => app.insert_char(c),
             KeyCode::Backspace => app.delete_char(),
