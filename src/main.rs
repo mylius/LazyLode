@@ -645,13 +645,29 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                             }
                         }
                         
-                        // Calculate row (account for header row)
+                        // Calculate row (account for header row and pagination)
                         let row = if table_inner_y > 0 {
                             (table_inner_y - 1) as usize // -1 for header row
                         } else {
                             0
                         };
-                        app.cursor_position.1 = row.min(result.rows.len().saturating_sub(1));
+                        
+                        // Account for table pagination/scrolling
+                        let visible_capacity = results_area.height.saturating_sub(3).max(0) as usize; // Account for borders and header
+                        let total_rows = result.rows.len();
+                        let max_start = total_rows.saturating_sub(visible_capacity);
+                        let current_cursor_row = app.cursor_position.1.min(total_rows.saturating_sub(1));
+                        let start_row = if visible_capacity == 0 {
+                            0
+                        } else {
+                            current_cursor_row
+                                .saturating_sub(visible_capacity / 2)
+                                .min(max_start)
+                        };
+                        
+                        // Convert click row to actual data row index
+                        let actual_row = start_row + row;
+                        app.cursor_position.1 = actual_row.min(result.rows.len().saturating_sub(1));
                     }
                 }
             }
