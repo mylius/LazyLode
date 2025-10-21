@@ -500,7 +500,7 @@ impl NavigationInputHandler {
                             port: connection.port.to_string(),
                             username: connection.username.clone(),
                             password: connection.password.clone().unwrap_or_default(),
-                            database: connection.database.clone(),
+                            database: connection.database.clone().unwrap_or_default(),
                             editing_index: Some(index),
                             current_field: 0,
                             ssh_enabled: connection.ssh_tunnel.is_some(),

@@ -27,7 +27,7 @@ use ratatui::layout::Direction as LayoutDirection;
 use ratatui::layout::{Constraint, Layout, Position, Rect};
 use ratatui::widgets::{Block, Borders};
 
-use crate::app::{App, InputMode};
+use crate::app::{App, InputMode, ActiveBlock};
 use crate::navigation::NavigationInputHandler;
 use crate::ui::types::Pane;
 
