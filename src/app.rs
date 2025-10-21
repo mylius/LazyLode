@@ -4,8 +4,8 @@ use crate::input::{NavigationAction, TreeAction};
 use crate::logging;
 use crate::navigation::types::Pane;
 use crate::navigation::NavigationManager;
-use crate::ui::types::Direction;
 use crate::ui::layout::QueryField;
+use crate::ui::types::Direction;
 use clipboard::{ClipboardContext, ClipboardProvider};
 
 use crate::config::Config;
@@ -37,7 +37,6 @@ pub enum ActiveBlock {
     Connections,
     ConnectionModal,
 }
-
 
 /// Represents the form data for creating or editing a database connection.
 #[derive(Default, Clone)]
@@ -73,7 +72,6 @@ pub struct QueryState {
     pub sort_order: Option<bool>,
     pub rows_marked_for_deletion: HashSet<usize>,
 }
-
 
 /// Represents an item in the connection tree.
 #[derive(PartialEq, Debug, Clone, Copy)] // Add PartialEq here
@@ -685,11 +683,17 @@ impl App {
         self.active_pane = Pane::QueryInput;
         self.input_mode = InputMode::Insert;
         self.cursor_position.0 = 0;
-        // Sync navigation manager's vim mode
-        self.navigation_manager
-            .box_manager_mut()
-            .vim_editor_mut()
-            .mode = crate::navigation::types::VimMode::Insert;
+        // Get content before mutable borrow
+        let where_content = self
+            .current_query_state()
+            .map(|state| state.where_clause.clone())
+            .unwrap_or_default();
+
+        // Sync navigation manager's vim mode and cursor position
+        let vim_editor = self.navigation_manager.box_manager_mut().vim_editor_mut();
+        vim_editor.mode = crate::navigation::types::VimMode::Insert;
+        vim_editor.set_cursor_position(self.cursor_position);
+        vim_editor.set_content(where_content);
         let len = self
             .current_query_state()
             .map(|state| state.where_clause.len())
@@ -713,28 +717,21 @@ impl App {
                     if let Some(tree_item) = self.get_tree_item_at_visual_index(idx) {
                         match tree_item {
                             TreeItem::Connection(conn_idx) => {
-                                if let Some(connection) = self.connection_tree.get_mut(conn_idx)
-                                {
+                                if let Some(connection) = self.connection_tree.get_mut(conn_idx) {
                                     connection.is_expanded = false;
                                 }
                             }
                             TreeItem::Database(conn_idx, db_idx) => {
-                                if let Some(connection) = self.connection_tree.get_mut(conn_idx)
-                                {
-                                    if let Some(database) = connection.databases.get_mut(db_idx)
-                                    {
+                                if let Some(connection) = self.connection_tree.get_mut(conn_idx) {
+                                    if let Some(database) = connection.databases.get_mut(db_idx) {
                                         database.is_expanded = false;
                                     }
                                 }
                             }
                             TreeItem::Schema(conn_idx, db_idx, schema_idx) => {
-                                if let Some(connection) = self.connection_tree.get_mut(conn_idx)
-                                {
-                                    if let Some(database) = connection.databases.get_mut(db_idx)
-                                    {
-                                        if let Some(schema) =
-                                            database.schemas.get_mut(schema_idx)
-                                        {
+                                if let Some(connection) = self.connection_tree.get_mut(conn_idx) {
+                                    if let Some(database) = connection.databases.get_mut(db_idx) {
+                                        if let Some(schema) = database.schemas.get_mut(schema_idx) {
                                             schema.is_expanded = false;
                                         }
                                     }
@@ -1736,11 +1733,20 @@ impl App {
         self.input_mode = InputMode::Insert;
         self.last_key_was_d = false;
         self.awaiting_replace = false;
-        // Sync navigation manager's vim mode
-        self.navigation_manager
-            .box_manager_mut()
-            .vim_editor_mut()
-            .mode = crate::navigation::types::VimMode::Insert;
+        // Get content before mutable borrow
+        let content = self
+            .current_query_state()
+            .map(|state| match field {
+                QueryField::Where => state.where_clause.clone(),
+                QueryField::OrderBy => state.order_by_clause.clone(),
+            })
+            .unwrap_or_default();
+
+        // Sync navigation manager's vim mode and cursor position
+        let vim_editor = self.navigation_manager.box_manager_mut().vim_editor_mut();
+        vim_editor.mode = crate::navigation::types::VimMode::Insert;
+        vim_editor.set_cursor_position(self.cursor_position);
+        vim_editor.set_content(content);
         self.cursor_position = match field {
             QueryField::Where => (0, position),
             QueryField::OrderBy => (1, position),
