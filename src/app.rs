@@ -554,6 +554,19 @@ impl App {
 
     /// Saves a new connection based on the data in `connection_form`.
     pub fn save_connection(&mut self) {
+        let mut ssh_tunnel = None;
+        if let Some(name) = &self.connection_form.ssh_tunnel_name {
+            if let Some(tunnel) = self
+                .config
+                .ssh_tunnels
+                .iter()
+                .find(|t| &t.name == name)
+                .cloned()
+            {
+                ssh_tunnel = Some(tunnel.config);
+            }
+        }
+
         let new_connection = ConnectionConfig {
             name: self.connection_form.name.clone(),
             db_type: self.connection_form.db_type.clone(),
@@ -563,7 +576,7 @@ impl App {
             password: Some(self.connection_form.password.clone()),
             default_database: Some(self.connection_form.database.clone()),
             databases: std::collections::HashMap::new(),
-            ssh_tunnel: None,
+            ssh_tunnel,
             ssh_tunnel_name: self.connection_form.ssh_tunnel_name.clone(),
             database: Some(self.connection_form.database.clone()),
         };
@@ -1176,6 +1189,19 @@ impl App {
     /// Edits an existing connection based on the data in `connection_form`.
     pub fn edit_connection(&mut self) {
         if let Some(index) = self.connection_form.editing_index {
+            let mut ssh_tunnel = None;
+            if let Some(name) = &self.connection_form.ssh_tunnel_name {
+                if let Some(tunnel) = self
+                    .config
+                    .ssh_tunnels
+                    .iter()
+                    .find(|t| &t.name == name)
+                    .cloned()
+                {
+                    ssh_tunnel = Some(tunnel.config);
+                }
+            }
+
             let updated_connection = ConnectionConfig {
                 name: self.connection_form.name.clone(),
                 db_type: self.connection_form.db_type.clone(),
@@ -1185,7 +1211,7 @@ impl App {
                 password: Some(self.connection_form.password.clone()),
                 default_database: Some(self.connection_form.database.clone()),
                 databases: std::collections::HashMap::new(),
-                ssh_tunnel: None,
+                ssh_tunnel,
                 ssh_tunnel_name: self.connection_form.ssh_tunnel_name.clone(),
                 database: Some(self.connection_form.database.clone()),
             };
