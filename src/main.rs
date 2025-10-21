@@ -30,6 +30,7 @@ use ratatui::widgets::{Block, Borders};
 
 use crate::app::{App, InputMode};
 use crate::navigation::NavigationInputHandler;
+use crate::navigation::types::NavigationAction;
 use crate::ui::types::Pane;
 
 fn setup_panic_hook() {
@@ -593,6 +594,9 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                     app.input_mode = InputMode::Normal;
                     app.last_key_was_d = false;
                     app.awaiting_replace = false;
+                    
+                    // Sync with navigation manager
+                    app.navigation_manager.handle_action(NavigationAction::FocusConnections);
 
                     // Also trigger the tree action to open/expand the item
                     if let Err(e) =
@@ -609,6 +613,38 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                 app.input_mode = InputMode::Insert;
                 app.last_key_was_d = false;
                 app.awaiting_replace = false;
+                
+                // Determine which query field was clicked based on position
+                let relative_y = y - query_area.y;
+                let relative_x = x - query_area.x;
+                
+                // Split query area into WHERE and ORDER BY sections
+                let query_height = query_area.height;
+                let where_height = query_height / 2;
+                let order_by_height = query_height - where_height;
+                
+                if relative_y < where_height {
+                    // Clicked in WHERE clause area
+                    app.cursor_position.0 = 0;
+                    // Set cursor position in WHERE clause text
+                    if let Some(state) = app.current_query_state_mut() {
+                        let where_text_len = state.where_clause.len();
+                        let cursor_x = (relative_x as usize).min(where_text_len);
+                        app.cursor_position.1 = cursor_x;
+                    }
+                } else {
+                    // Clicked in ORDER BY clause area
+                    app.cursor_position.0 = 1;
+                    // Set cursor position in ORDER BY clause text
+                    if let Some(state) = app.current_query_state_mut() {
+                        let order_by_text_len = state.order_by_clause.len();
+                        let cursor_x = (relative_x as usize).min(order_by_text_len);
+                        app.cursor_position.1 = cursor_x;
+                    }
+                }
+                
+                // Sync with navigation manager
+                app.navigation_manager.handle_action(NavigationAction::FocusQueryInput);
             }
 
             // Check if click is in results area
@@ -617,6 +653,9 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                 app.input_mode = InputMode::Normal;
                 app.last_key_was_d = false;
                 app.awaiting_replace = false;
+                
+                // Sync with navigation manager
+                app.navigation_manager.handle_action(NavigationAction::FocusResults);
 
                 // Calculate cursor position based on click coordinates
                 if let Some(selected_tab_index) = app.selected_result_tab_index {
@@ -703,6 +742,8 @@ async fn handle_mouse_event(app: &mut App, me: MouseEvent) -> io::Result<()> {
                             app.selected_result_tab_index = Some(tab_index);
                             // Reset cursor position when switching tabs
                             app.cursor_position = (0, 0);
+                            // Sync with navigation manager
+                            app.navigation_manager.handle_action(NavigationAction::FocusResults);
                         }
                     }
                 }
