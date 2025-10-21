@@ -117,6 +117,9 @@ impl NavigationInputHandler {
                 match app.active_pane {
                     OldPane::Results => app.move_cursor_in_results(OldDirection::Up),
                     OldPane::Connections => app.move_selection_up(),
+                    OldPane::QueryInput => {
+                        app.handle_navigation(OldNavigationAction::Direction(OldDirection::Up));
+                    }
                     _ => {}
                 }
                 true
@@ -125,6 +128,9 @@ impl NavigationInputHandler {
                 match app.active_pane {
                     OldPane::Results => app.move_cursor_in_results(OldDirection::Down),
                     OldPane::Connections => app.move_selection_down(),
+                    OldPane::QueryInput => {
+                        app.handle_navigation(OldNavigationAction::Direction(OldDirection::Down));
+                    }
                     _ => {}
                 }
                 true
@@ -574,6 +580,10 @@ impl NavigationInputHandler {
                 Self::handle_query_input_normal_mode(key, modifiers, app).await
             }
             crate::app::InputMode::Insert => {
+                if matches!(key, KeyCode::Up | KeyCode::Down) && modifiers.is_empty() {
+                    Self::handle_navigation_key(key, modifiers, app);
+                    return Ok(());
+                }
                 // In insert mode, handle text editing directly
                 Self::handle_query_input_insert_mode(key, modifiers, app).await
             }

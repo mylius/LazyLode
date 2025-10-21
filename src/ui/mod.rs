@@ -12,8 +12,8 @@ use crate::app::{App, InputMode};
 use crate::database::ConnectionStatus;
 use crate::logging;
 
-mod modal;
 pub mod layout;
+mod modal;
 pub mod types;
 
 #[cfg(test)]
@@ -145,20 +145,13 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
 
     // Render header paragraph
     let header = Line::from(format!("Connections (press 'a' to add){}", nav_info));
-    let mut block = Block::default().borders(Borders::ALL).style(
+    let header_block = Block::default().borders(Borders::ALL).style(
         Style::default()
             .fg(app.config.theme.text_color())
             .bg(app.config.theme.surface0_color()),
     );
 
-    // Highlight the block if it's the active pane
-    if app.active_pane == Pane::Connections {
-        block = block.border_style(Style::default().fg(app.config.theme.accent_color()));
-    }
-
-    // nav_info computed above
-
-    frame.render_widget(Paragraph::new(header).block(block), chunks[0]);
+    frame.render_widget(Paragraph::new(header).block(header_block), chunks[0]);
 
     // Prepare tree items for the connection tree list
     let mut tree_items = Vec::new();
@@ -248,7 +241,7 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
                 if database.is_expanded {
                     for (_schema_idx, schema) in database.schemas.iter().enumerate() {
                         let schema_expanded = if schema.is_expanded { "▼" } else { "▶" }; // Expansion symbol for schema
-                        
+
                         // Style for schema item, highlight if selected using visual index
                         let schema_style = if app.highlight_selected_item(current_visual_index) {
                             Style::default()
@@ -272,13 +265,14 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
                         if schema.is_expanded {
                             for table in &schema.tables {
                                 // Style for table item, highlight if selected using visual index
-                                let table_style = if app.highlight_selected_item(current_visual_index) {
-                                    Style::default()
-                                        .fg(app.config.theme.accent_color())
-                                        .add_modifier(Modifier::BOLD)
-                                } else {
-                                    Style::default().fg(app.config.theme.text_color())
-                                };
+                                let table_style =
+                                    if app.highlight_selected_item(current_visual_index) {
+                                        Style::default()
+                                            .fg(app.config.theme.accent_color())
+                                            .add_modifier(Modifier::BOLD)
+                                    } else {
+                                        Style::default().fg(app.config.theme.text_color())
+                                    };
 
                                 tree_items.push(ListItem::new(Line::from(vec![
                                     Span::raw("      "),              // Indentation
@@ -297,10 +291,18 @@ pub fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     // Render the connection tree list
+    let mut tree_block = Block::default()
+        .borders(Borders::ALL)
+        .style(Style::default().bg(app.config.theme.surface0_color()));
+
+    if app.active_pane == Pane::Connections {
+        tree_block = tree_block.border_style(Style::default().fg(app.config.theme.accent_color()));
+    }
+
     frame.render_widget(
         List::new(tree_items)
-            .block(Block::default().borders(Borders::ALL)) // Bordered block
-            .style(Style::default().bg(app.config.theme.surface0_color())), // Style with theme colors
+            .block(tree_block)
+            .style(Style::default().bg(app.config.theme.surface0_color())),
         chunks[1],
     );
 }
