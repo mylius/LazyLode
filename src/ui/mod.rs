@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Tabs},
+    widgets::{Block, Borders, Cell, Clear, List, ListItem, Paragraph, Row, Table, Tabs},
     Frame,
 };
 
@@ -19,7 +19,7 @@ pub mod types;
 #[cfg(test)]
 mod tab_shortening_tests;
 
-pub use modal::{render_connection_modal, render_deletion_modal};
+pub use modal::{render_connection_modal, render_deletion_modal, render_themes_modal};
 pub use types::Pane;
 
 /// Renders the entire UI of the application.
@@ -30,25 +30,30 @@ pub fn render(frame: &mut Frame, app: &App) {
         frame.area(),
     );
 
-    // Define vertical chunks for status bar, main content, and command bar
+    // Define vertical chunks for status bar and main content (no command bar)
     let chunks = Layout::default()
         .direction(LayoutDirection::Vertical)
         .constraints([
             Constraint::Length(1), // Status bar height
             Constraint::Min(1),    // Main content area (flexible height)
-            Constraint::Length(1), // Command bar height
         ])
         .split(frame.area());
 
     render_status_bar(frame, app, chunks[0]);
     render_main_content(frame, app, chunks[1]);
-    render_command_bar(frame, app, chunks[2]);
 
     // Render appropriate modal if active
     if app.show_connection_modal {
         render_connection_modal(frame, app);
     } else if app.show_deletion_modal {
         render_deletion_modal(frame, app);
+    } else if app.show_themes_modal {
+        render_themes_modal(frame, app);
+    }
+
+    // Render floating command window if in command mode
+    if app.input_mode == InputMode::Command {
+        render_floating_command_window(frame, app);
     }
 }
 
@@ -56,42 +61,26 @@ pub fn render(frame: &mut Frame, app: &App) {
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     // Use new navigation system mode indicator
     let mode = app.navigation_manager.get_mode_indicator();
-    let nav_info = app.navigation_manager.get_navigation_info();
 
-    // Create status text, including current mode, navigation info, theme, and status message
-    let theme_info = if app.input_mode == InputMode::Command && app.selected_suggestion.is_some() {
-        if let Some(suggestion) = app.get_selected_suggestion() {
-            if suggestion.starts_with("theme ") {
-                let theme_name = suggestion.strip_prefix("theme ").unwrap_or("");
-                format!(" | Theme: {} (preview)", theme_name)
-            } else {
-                format!(" | Theme: {}", app.get_current_theme_name())
-            }
-        } else {
-            format!(" | Theme: {}", app.get_current_theme_name())
-        }
+    // Determine what to show in the navigation info section
+    let nav_info = if app.input_mode == InputMode::Command {
+        "Command".to_string()
+    } else if app.show_connection_modal {
+        "Add Connection".to_string()
+    } else if app.show_deletion_modal {
+        "Delete Confirmation".to_string()
+    } else if app.show_themes_modal {
+        "Themes".to_string()
     } else {
-        format!(" | Theme: {}", app.get_current_theme_name())
+        app.navigation_manager.get_navigation_info()
     };
 
-    // Add current tab info if a tab is selected
-    let tab_info = if let Some(tab_index) = app.selected_result_tab_index {
-        if let Some((tab_name, _, _)) = app.result_tabs.get(tab_index) {
-            format!(" | Tab: {}", tab_name)
-        } else {
-            String::new()
-        }
-    } else {
-        String::new()
-    };
-
+    // Create status text, including current mode, navigation info, and status message
     let status = Line::from(format!(
-        "{} | {} | {}{}{}",
+        "{} | {} | {}",
         mode,
         nav_info,
-        app.status_message.as_deref().unwrap_or(""),
-        tab_info,
-        theme_info
+        app.status_message.as_deref().unwrap_or("")
     ));
 
     frame.render_widget(
@@ -380,23 +369,23 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     // Render WHERE clause with cursor when inserting in WHERE
-    let where_content = if let Some(state) = query_state {
-        if app.active_pane == Pane::QueryInput
-            && app.cursor_position.0 == 0
-            && app.input_mode == InputMode::Insert
-        {
-            let mut content = state.where_clause.clone();
-            // Convert character position to byte position safely
-            let byte_pos = content
-                .char_indices()
-                .nth(app.cursor_position.1)
-                .map(|(pos, _)| pos)
-                .unwrap_or(content.len());
-            content.insert(byte_pos, '|'); // Add cursor
-            content
-        } else {
-            state.where_clause.clone()
-        }
+    let where_content = if app.active_pane == Pane::QueryInput
+        && app.cursor_position.0 == 0
+        && app.input_mode == InputMode::Insert
+    {
+        // Use VimEditor content when in insert mode
+        let vim_editor = app.navigation_manager.box_manager().vim_editor();
+        let mut content = vim_editor.content().to_string();
+        // Convert character position to byte position safely
+        let byte_pos = content
+            .char_indices()
+            .nth(app.cursor_position.1)
+            .map(|(pos, _)| pos)
+            .unwrap_or(content.len());
+        content.insert(byte_pos, '|'); // Add cursor
+        content
+    } else if let Some(state) = query_state {
+        state.where_clause.clone()
     } else {
         String::new()
     };
@@ -420,23 +409,23 @@ fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {
     );
 
     // Render ORDER BY clause with cursor when inserting in ORDER BY
-    let order_by_content = if let Some(state) = query_state {
-        if app.active_pane == Pane::QueryInput
-            && app.cursor_position.0 == 1
-            && app.input_mode == InputMode::Insert
-        {
-            let mut content = state.order_by_clause.clone();
-            // Convert character position to byte position safely
-            let byte_pos = content
-                .char_indices()
-                .nth(app.cursor_position.1)
-                .map(|(pos, _)| pos)
-                .unwrap_or(content.len());
-            content.insert(byte_pos, '|'); // Add cursor
-            content
-        } else {
-            state.order_by_clause.clone()
-        }
+    let order_by_content = if app.active_pane == Pane::QueryInput
+        && app.cursor_position.0 == 1
+        && app.input_mode == InputMode::Insert
+    {
+        // Use VimEditor content when in insert mode
+        let vim_editor = app.navigation_manager.box_manager().vim_editor();
+        let mut content = vim_editor.content().to_string();
+        // Convert character position to byte position safely
+        let byte_pos = content
+            .char_indices()
+            .nth(app.cursor_position.1)
+            .map(|(pos, _)| pos)
+            .unwrap_or(content.len());
+        content.insert(byte_pos, '|'); // Add cursor
+        content
+    } else if let Some(state) = query_state {
+        state.order_by_clause.clone()
     } else {
         String::new()
     };
@@ -794,74 +783,205 @@ fn render_pagination(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-/// Renders the command bar at the bottom of the UI.
-fn render_command_bar(frame: &mut Frame, app: &App, area: Rect) {
-    if app.input_mode == InputMode::Command {
-        // Split area into command input and suggestions
-        let chunks = Layout::default()
-            .direction(LayoutDirection::Vertical)
-            .constraints([
-                Constraint::Length(1), // Command input
-                Constraint::Length(5), // Suggestions (show more)
-            ])
-            .split(area);
+/// Renders a floating command window centered in the middle of the screen
+fn render_floating_command_window(frame: &mut Frame, app: &App) {
+    // Create a floating window centered in the middle of the screen
+    let window_height = 3; // Fixed height for command input only
+    let window_width = 60;
 
-        let command = format!(":{}", app.command_input);
+    // Center the window both horizontally and vertically
+    let command_area = Layout::default()
+        .direction(LayoutDirection::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - (window_height * 100 / frame.area().height)) / 2),
+            Constraint::Length(window_height),
+            Constraint::Percentage((100 - (window_height * 100 / frame.area().height)) / 2),
+        ])
+        .split(frame.area())[1];
 
-        // Render command input
-        frame.render_widget(
-            Paragraph::new(command).style(
-                Style::default()
-                    .fg(app.config.theme.text_color())
-                    .bg(app.config.theme.surface0_color()),
-            ),
-            chunks[0],
-        );
+    let command_area = Layout::default()
+        .direction(LayoutDirection::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - window_width) / 2),
+            Constraint::Percentage(window_width),
+            Constraint::Percentage((100 - window_width) / 2),
+        ])
+        .split(command_area)[1];
 
-        // Render suggestions
-        if !app.command_suggestions.is_empty() {
-            let suggestion_items: Vec<ListItem> = app
-                .command_suggestions
-                .iter()
-                .enumerate()
-                .map(|(idx, suggestion)| {
-                    let style = if Some(idx) == app.selected_suggestion {
-                        Style::default()
-                            .fg(app.config.theme.base_color())
-                            .bg(app.config.theme.accent_color())
-                    } else {
-                        Style::default()
-                            .fg(app.config.theme.text_color())
-                            .bg(app.config.theme.surface1_color())
-                    };
-                    ListItem::new(suggestion.as_str()).style(style)
-                })
-                .collect();
+    // Clear the area and render the command window
+    frame.render_widget(Clear, command_area);
 
-            let suggestions_list = List::new(suggestion_items)
-                .style(Style::default().bg(app.config.theme.surface1_color()));
+    let command_text = format!(">{}", app.command_input);
 
-            frame.render_widget(suggestions_list, chunks[1]);
-        }
-
-        // Place the terminal cursor at the end of the command input
-        let cursor_x = area.x + 1 + app.command_input.len() as u16; // account for ':'
-        let cursor_y = area.y;
-        frame.set_cursor_position(ratatui::layout::Position {
-            x: cursor_x,
-            y: cursor_y,
-        });
+    // Add preview indicator if we have suggestions and a selection
+    let display_text = if app.selected_suggestion.is_some() && !app.command_suggestions.is_empty() {
+        format!("{} [PREVIEW]", command_text)
     } else {
-        // Empty command bar in normal mode
-        frame.render_widget(
-            Paragraph::new("").style(
+        command_text
+    };
+
+    // Create the command window block
+    let command_block = Block::default()
+        .title("Command")
+        .borders(Borders::ALL)
+        .style(
+            Style::default()
+                .fg(app.config.theme.text_color())
+                .bg(app.config.theme.surface1_color()),
+        );
+
+    frame.render_widget(command_block.clone(), command_area);
+
+    // Get inner area for content
+    let inner_area = command_block.inner(command_area);
+
+    // Render command input
+    frame.render_widget(
+        Paragraph::new(display_text).style(
+            Style::default()
+                .fg(app.config.theme.text_color())
+                .bg(app.config.theme.surface1_color()),
+        ),
+        inner_area,
+    );
+
+    // Place cursor at the end of the command input (after the > prompt)
+    let cursor_x = inner_area.x + 1 + app.command_input.len() as u16;
+    let cursor_y = inner_area.y;
+    frame.set_cursor_position(ratatui::layout::Position {
+        x: cursor_x,
+        y: cursor_y,
+    });
+
+    // Render suggestions dropdown if there are suggestions and meaningful input
+    if !app.command_suggestions.is_empty() && !app.command_input.is_empty() {
+        render_suggestions_dropdown(frame, app, command_area);
+    }
+}
+
+/// Renders a minimal suggestions dropdown below the command pane
+fn render_suggestions_dropdown(frame: &mut Frame, app: &App, command_area: Rect) {
+    // Calculate dropdown position below the command window
+    let dropdown_height = std::cmp::min(app.command_suggestions.len() as u16, 6); // Max 6 lines
+
+    // Position dropdown directly below the command window
+    let dropdown_y = command_area.y + command_area.height;
+
+    // Align suggestions with command text - offset by the "> " prompt
+    let command_text_offset = 2; // "> " is 2 characters
+    let dropdown_x = command_area.x + command_text_offset;
+    let dropdown_width = command_area.width.saturating_sub(command_text_offset);
+
+    // Ensure dropdown doesn't go off screen
+    let dropdown_y = std::cmp::min(
+        dropdown_y,
+        frame.area().height.saturating_sub(dropdown_height),
+    );
+
+    let dropdown_area = Rect {
+        x: dropdown_x,
+        y: dropdown_y,
+        width: dropdown_width,
+        height: dropdown_height,
+    };
+
+    // Clear the dropdown area
+    frame.render_widget(Clear, dropdown_area);
+
+    // Render suggestions list with scrolling
+    const VISIBLE_ITEMS: usize = 6;
+    let total_items = app.command_suggestions.len();
+    let scroll_offset = app.suggestions_scroll_offset;
+
+    // Get visible suggestions based on scroll offset
+    let visible_suggestions: Vec<ListItem> = app
+        .command_suggestions
+        .iter()
+        .enumerate()
+        .skip(scroll_offset)
+        .take(VISIBLE_ITEMS)
+        .map(|(idx, suggestion)| {
+            let style = if Some(idx) == app.selected_suggestion {
+                Style::default()
+                    .fg(app.config.theme.base_color())
+                    .bg(app.config.theme.accent_color())
+            } else {
                 Style::default()
                     .fg(app.config.theme.text_color())
-                    .bg(app.config.theme.surface0_color()),
-            ),
-            area,
-        );
+                    .bg(app.config.theme.surface1_color())
+            };
+            ListItem::new(suggestion.as_str()).style(style)
+        })
+        .collect();
+
+    let suggestions_list = List::new(visible_suggestions)
+        .style(Style::default().bg(app.config.theme.surface1_color()));
+
+    frame.render_widget(suggestions_list, dropdown_area);
+
+    // Render scrollbar if needed
+    if total_items > VISIBLE_ITEMS {
+        render_scrollbar(frame, app, dropdown_area, total_items, VISIBLE_ITEMS);
     }
+}
+
+/// Renders a scrollbar for the suggestions dropdown
+fn render_scrollbar(
+    frame: &mut Frame,
+    app: &App,
+    dropdown_area: Rect,
+    total_items: usize,
+    visible_items: usize,
+) {
+    if total_items <= visible_items {
+        return;
+    }
+
+    // Calculate scrollbar position and size
+    let scrollbar_width = 1;
+    let scrollbar_x = dropdown_area.x + dropdown_area.width - scrollbar_width;
+    let scrollbar_area = Rect {
+        x: scrollbar_x,
+        y: dropdown_area.y,
+        width: scrollbar_width,
+        height: dropdown_area.height,
+    };
+
+    // Calculate thumb position and size
+    let thumb_height =
+        ((visible_items as f32 / total_items as f32) * dropdown_area.height as f32) as u16;
+    let thumb_height = thumb_height.max(1);
+
+    let scroll_progress =
+        app.suggestions_scroll_offset as f32 / (total_items - visible_items) as f32;
+    let thumb_y =
+        dropdown_area.y + (scroll_progress * (dropdown_area.height - thumb_height) as f32) as u16;
+
+    // Render scrollbar track
+    let track_area = Rect {
+        x: scrollbar_area.x,
+        y: scrollbar_area.y,
+        width: scrollbar_area.width,
+        height: scrollbar_area.height,
+    };
+
+    frame.render_widget(
+        Block::default().style(Style::default().bg(app.config.theme.surface2_color())),
+        track_area,
+    );
+
+    // Render scrollbar thumb
+    let thumb_area = Rect {
+        x: scrollbar_area.x,
+        y: thumb_y,
+        width: scrollbar_area.width,
+        height: thumb_height,
+    };
+
+    frame.render_widget(
+        Block::default().style(Style::default().bg(app.config.theme.accent_color())),
+        thumb_area,
+    );
 }
 
 /// Intelligently shortens tab names to fit within the available width.

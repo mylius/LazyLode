@@ -318,6 +318,16 @@ impl Default for KeyMapping {
             NavigationAction::ReplaceChar,
         );
 
+        // Yank operations - these will be handled by the vim editor based on context
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('y')),
+            NavigationAction::YankLine,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('Y')),
+            NavigationAction::YankLine,
+        );
+
         // Copy/paste
         mapping.add_mapping(
             KeyCombination::with_ctrl(KeyCode::Char('c')),
@@ -478,6 +488,13 @@ pub enum NavigationAction {
     ReplaceChar,
     Undo,
     Redo,
+
+    // Yank actions
+    YankLine,
+    YankWord,
+    YankToLineEnd,
+    YankToLineStart,
+    YankSelection,
 
     // Special actions
     Quit,

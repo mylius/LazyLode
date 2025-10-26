@@ -1,4 +1,5 @@
 use crate::navigation::types::{Direction, VimMode};
+use clipboard::{ClipboardContext, ClipboardProvider};
 use crossterm::event::{KeyCode, KeyModifiers};
 
 /// Vim-style text editor for handling text input with vim keybindings
@@ -13,6 +14,10 @@ pub struct VimEditor {
     replace_mode: bool,
     /// Last key pressed (for double-key commands like 'dd')
     last_key: Option<char>,
+    /// Visual selection start position
+    visual_start: Option<(usize, usize)>,
+    /// Yanked content for internal clipboard
+    yank_buffer: String,
 }
 
 impl VimEditor {
@@ -23,6 +28,8 @@ impl VimEditor {
             cursor_position: (0, 0),
             replace_mode: false,
             last_key: None,
+            visual_start: None,
+            yank_buffer: String::new(),
         }
     }
 
@@ -145,12 +152,27 @@ impl VimEditor {
             }
             KeyCode::Char('v') => {
                 self.mode = VimMode::Visual;
+                self.visual_start = Some(self.cursor_position);
+                true
+            }
+            KeyCode::Char('y') => {
+                if self.last_key == Some('y') {
+                    self.yank_line();
+                    self.last_key = None;
+                } else {
+                    self.last_key = Some('y');
+                }
+                true
+            }
+            KeyCode::Char('Y') => {
+                self.yank_line();
                 true
             }
             KeyCode::Esc => {
                 self.mode = VimMode::Normal;
                 self.replace_mode = false;
                 self.last_key = None;
+                self.visual_start = None;
                 true
             }
             _ => false,
@@ -204,6 +226,7 @@ impl VimEditor {
         match key {
             KeyCode::Esc => {
                 self.mode = VimMode::Normal;
+                self.visual_start = None;
                 true
             }
             KeyCode::Char('h') | KeyCode::Left => {
@@ -220,6 +243,12 @@ impl VimEditor {
             }
             KeyCode::Char('l') | KeyCode::Right => {
                 self.move_cursor(Direction::Right);
+                true
+            }
+            KeyCode::Char('y') => {
+                self.yank_selection();
+                self.mode = VimMode::Normal;
+                self.visual_start = None;
                 true
             }
             _ => false,
@@ -413,5 +442,144 @@ impl VimEditor {
         lines.insert(row, String::new());
         self.cursor_position = (row, 0);
         self.content = lines.join("\n");
+    }
+
+    pub fn yank_line(&mut self) -> Option<String> {
+        let (row, _) = self.cursor_position;
+        let lines: Vec<&str> = self.content.lines().collect();
+
+        if let Some(line) = lines.get(row) {
+            self.yank_buffer = line.to_string();
+            self.copy_to_system_clipboard(&self.yank_buffer);
+            Some(format!("Yanked line: {}", line))
+        } else {
+            None
+        }
+    }
+
+    pub fn yank_selection(&mut self) -> Option<String> {
+        if let Some(start) = self.visual_start {
+            let end = self.cursor_position;
+            let selected_text = self.get_text_between(start, end);
+            let status_msg = format!("Yanked selection: {}", selected_text);
+            self.yank_buffer = selected_text;
+            self.copy_to_system_clipboard(&self.yank_buffer);
+            Some(status_msg)
+        } else {
+            None
+        }
+    }
+
+    pub fn yank_word(&mut self) -> Option<String> {
+        let (row, col) = self.cursor_position;
+        let lines: Vec<&str> = self.content.lines().collect();
+
+        if let Some(line) = lines.get(row) {
+            let word = self.get_word_at_position(line, col);
+            let status_msg = format!("Yanked word: {}", word);
+            self.yank_buffer = word;
+            self.copy_to_system_clipboard(&self.yank_buffer);
+            Some(status_msg)
+        } else {
+            None
+        }
+    }
+
+    pub fn yank_to_line_end(&mut self) -> Option<String> {
+        let (row, col) = self.cursor_position;
+        let lines: Vec<&str> = self.content.lines().collect();
+
+        if let Some(line) = lines.get(row) {
+            let remaining = &line[col..];
+            self.yank_buffer = remaining.to_string();
+            self.copy_to_system_clipboard(&self.yank_buffer);
+            Some(format!("Yanked to line end: {}", remaining))
+        } else {
+            None
+        }
+    }
+
+    pub fn yank_to_line_start(&mut self) -> Option<String> {
+        let (row, col) = self.cursor_position;
+        let lines: Vec<&str> = self.content.lines().collect();
+
+        if let Some(line) = lines.get(row) {
+            let before = &line[..col];
+            self.yank_buffer = before.to_string();
+            self.copy_to_system_clipboard(&self.yank_buffer);
+            Some(format!("Yanked to line start: {}", before))
+        } else {
+            None
+        }
+    }
+
+    pub fn get_yank_buffer(&self) -> &str {
+        &self.yank_buffer
+    }
+
+    fn get_text_between(&self, start: (usize, usize), end: (usize, usize)) -> String {
+        let lines: Vec<&str> = self.content.lines().collect();
+        let (start_row, start_col) = start;
+        let (end_row, end_col) = end;
+
+        if start_row == end_row {
+            if let Some(line) = lines.get(start_row) {
+                let start_pos = start_col.min(line.len());
+                let end_pos = end_col.min(line.len());
+                if start_pos < end_pos {
+                    return line[start_pos..end_pos].to_string();
+                }
+            }
+        } else {
+            let mut result = String::new();
+            for row in start_row..=end_row.min(lines.len().saturating_sub(1)) {
+                if let Some(line) = lines.get(row) {
+                    if row == start_row {
+                        result.push_str(&line[start_col.min(line.len())..]);
+                    } else if row == end_row {
+                        result.push_str(&line[..end_col.min(line.len())]);
+                    } else {
+                        result.push_str(line);
+                    }
+                    if row < end_row {
+                        result.push('\n');
+                    }
+                }
+            }
+            return result;
+        }
+        String::new()
+    }
+
+    fn get_word_at_position(&self, line: &str, col: usize) -> String {
+        if col >= line.len() {
+            return String::new();
+        }
+
+        let chars: Vec<char> = line.chars().collect();
+        let mut start = col;
+        let mut end = col;
+
+        while start > 0 && chars[start - 1].is_alphanumeric() {
+            start -= 1;
+        }
+
+        while end < chars.len() && chars[end].is_alphanumeric() {
+            end += 1;
+        }
+
+        if start < end {
+            chars[start..end].iter().collect()
+        } else {
+            String::new()
+        }
+    }
+
+    fn copy_to_system_clipboard(&self, text: &str) {
+        let mut ctx: ClipboardContext = match ClipboardProvider::new() {
+            Ok(ctx) => ctx,
+            Err(_) => return,
+        };
+        let _ = ctx.set_contents(text.to_string());
     }
 }

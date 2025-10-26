@@ -12,15 +12,23 @@ pub struct NavigationInputHandler;
 impl NavigationInputHandler {
     /// Handle a key event using the new navigation system
     pub async fn handle_key(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
-        // Quit is now handled by the navigation system mappings
-
-        // Search key is now handled by the navigation system mappings
-
         // Handle modal input (always available when modal is shown)
         if app.show_connection_modal {
             if let crate::app::ActiveBlock::ConnectionModal = app.active_block {
                 Self::handle_connection_modal_input(key, app).await?;
             }
+            return Ok(());
+        }
+
+        // Handle themes modal input
+        if app.show_themes_modal {
+            Self::handle_themes_modal_input(key, app).await?;
+            return Ok(());
+        }
+
+        // Handle command mode input
+        if app.input_mode == crate::app::InputMode::Command {
+            Self::handle_command_mode_input(key, modifiers, app).await?;
             return Ok(());
         }
 
@@ -39,6 +47,105 @@ impl NavigationInputHandler {
             OldPane::CommandLine => {}
         }
 
+        Ok(())
+    }
+
+    /// Handle command mode input
+    async fn handle_command_mode_input(
+        key: KeyCode,
+        _modifiers: KeyModifiers,
+        app: &mut App,
+    ) -> Result<()> {
+        match key {
+            KeyCode::Esc => {
+                // Exit command mode
+                app.input_mode = crate::app::InputMode::Normal;
+                app.command_input.clear();
+                app.command_buffer.clear();
+                app.command_suggestions.clear();
+                app.selected_suggestion = None;
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
+            }
+            KeyCode::Enter => {
+                // Execute command - use selected suggestion if available, otherwise use current input
+                let command = if let Some(suggestion) = app.get_selected_suggestion() {
+                    suggestion.clone()
+                } else {
+                    app.command_input.clone()
+                };
+
+                if !command.is_empty() {
+                    // Sync command to command_buffer for processing
+                    app.command_buffer.clear();
+                    for c in command.chars() {
+                        app.command_buffer.push(c);
+                    }
+
+                    // Process the command
+                    match crate::command::CommandProcessor::process_command(app) {
+                        Ok(true) => {
+                            // Command was handled successfully
+                        }
+                        Ok(false) => {
+                            // Command not recognized
+                            app.status_message = Some(format!("Unknown command: {}", command));
+                        }
+                        Err(e) => {
+                            let _ =
+                                crate::logging::error(&format!("Error processing command: {}", e));
+                            app.status_message = Some(format!("Error: {}", e));
+                        }
+                    }
+                }
+
+                // Exit command mode
+                app.input_mode = crate::app::InputMode::Normal;
+                app.command_input.clear();
+                app.command_buffer.clear();
+                app.command_suggestions.clear();
+                app.selected_suggestion = None;
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
+            }
+            KeyCode::Backspace => {
+                // Delete last character
+                app.command_input.pop();
+                app.update_command_suggestions();
+            }
+            KeyCode::Up => {
+                // Navigate suggestions
+                app.select_previous_suggestion();
+            }
+            KeyCode::Down => {
+                // Navigate suggestions
+                app.select_next_suggestion();
+            }
+            KeyCode::Tab => {
+                // Auto-complete with selected suggestion
+                if let Some(suggestion) = app.get_selected_suggestion() {
+                    app.command_input = suggestion.clone();
+                    app.update_command_suggestions();
+                }
+            }
+            KeyCode::Char(c) => {
+                // Add character to command input
+                app.command_input.push(c);
+                app.update_command_suggestions();
+
+                // Reset selection to first suggestion when typing
+                if !app.command_suggestions.is_empty() {
+                    app.selected_suggestion = Some(0);
+                }
+            }
+            _ => {}
+        }
         Ok(())
     }
 
@@ -100,6 +207,9 @@ impl NavigationInputHandler {
             }
             crate::navigation::types::NavigationAction::EnterCommandMode => {
                 app.input_mode = crate::app::InputMode::Command;
+                app.command_input.clear();
+                app.command_buffer.clear();
+                app.update_command_suggestions();
                 app.navigation_manager.handle_action(action)
             }
             // Movement actions - delegate to app functions
@@ -185,93 +295,35 @@ impl NavigationInputHandler {
                 }
                 true
             }
-            // Pane navigation actions
-            crate::navigation::types::NavigationAction::FocusConnections => {
-                app.active_pane = OldPane::Connections;
-                true
-            }
-            crate::navigation::types::NavigationAction::FocusQueryInput => {
-                app.active_pane = OldPane::QueryInput;
-                true
-            }
-            crate::navigation::types::NavigationAction::FocusResults => {
-                app.active_pane = OldPane::Results;
-                true
-            }
-            crate::navigation::types::NavigationAction::FocusSchemaExplorer => {
-                app.active_pane = OldPane::SchemaExplorer;
-                true
-            }
-            crate::navigation::types::NavigationAction::FocusCommandLine => {
-                app.active_pane = OldPane::CommandLine;
-                true
-            }
-            // Directional pane navigation actions
-            crate::navigation::types::NavigationAction::FocusPaneLeft => {
-                // Left takes us to Connections/TreeView, but not from TreeView itself
-                match app.active_pane {
-                    OldPane::Connections => {
-                        // Left from TreeView does nothing
-                        true
-                    }
-                    _ => {
-                        app.active_pane = OldPane::Connections;
-                        true
-                    }
+            // Pane navigation actions - delegate to navigation manager
+            crate::navigation::types::NavigationAction::FocusConnections
+            | crate::navigation::types::NavigationAction::FocusQueryInput
+            | crate::navigation::types::NavigationAction::FocusResults
+            // | crate::navigation::types::NavigationAction::FocusSchemaExplorer // Removed - not implemented in UI
+            // | crate::navigation::types::NavigationAction::FocusCommandLine // Removed - command mode is handled via InputMode::Command
+            | crate::navigation::types::NavigationAction::FocusPaneLeft
+            | crate::navigation::types::NavigationAction::FocusPaneRight
+            | crate::navigation::types::NavigationAction::FocusPaneUp
+            | crate::navigation::types::NavigationAction::FocusPaneDown
+            | crate::navigation::types::NavigationAction::NextPane
+            | crate::navigation::types::NavigationAction::PreviousPane => {
+                let handled = app.navigation_manager.handle_action(action);
+                if handled {
+                    // Sync app's active_pane with navigation manager's state
+                    app.active_pane = app.navigation_manager.get_active_pane();
                 }
-            }
-            crate::navigation::types::NavigationAction::FocusPaneRight => {
-                // Right takes us to the next logical pane, but not from Results
-                match app.active_pane {
-                    OldPane::Results => {
-                        // Right from Data does nothing
-                        true
-                    }
-                    OldPane::Connections => {
-                        app.active_pane = OldPane::Results; // TreeView → Data directly
-                        true
-                    }
-                    OldPane::QueryInput => {
-                        app.active_pane = OldPane::Results;
-                        true
-                    }
-                    OldPane::SchemaExplorer => {
-                        app.active_pane = OldPane::CommandLine;
-                        true
-                    }
-                    OldPane::CommandLine => {
-                        app.active_pane = OldPane::Connections; // Wrap around
-                        true
-                    }
-                }
-            }
-            crate::navigation::types::NavigationAction::FocusPaneUp => {
-                // Up always takes us to Queries
-                app.active_pane = OldPane::QueryInput;
-                true
-            }
-            crate::navigation::types::NavigationAction::FocusPaneDown => {
-                // Down takes us to the next logical pane, but not from Results or TreeView
-                match app.active_pane {
-                    OldPane::Results | OldPane::Connections => {
-                        // Down from Results or TreeView does nothing
-                        true
-                    }
-                    OldPane::QueryInput => {
-                        app.active_pane = OldPane::Results;
-                        true
-                    }
-                    OldPane::SchemaExplorer => {
-                        app.active_pane = OldPane::CommandLine;
-                        true
-                    }
-                    OldPane::CommandLine => {
-                        app.active_pane = OldPane::Connections; // Wrap around
-                        true
-                    }
-                }
+                handled
             }
             // Special actions
+            crate::navigation::types::NavigationAction::FocusCommandLine => {
+                // Enter command mode instead of navigating to a pane
+                app.input_mode = crate::app::InputMode::Command;
+                app.command_input.clear();
+                app.command_buffer.clear();
+                app.update_command_suggestions();
+                app.navigation_manager.handle_action(crate::navigation::types::NavigationAction::EnterCommandMode);
+                true
+            }
             crate::navigation::types::NavigationAction::Quit => {
                 app.quit();
                 true
@@ -342,7 +394,69 @@ impl NavigationInputHandler {
         }
     }
 
+    async fn handle_themes_modal_input(key: KeyCode, app: &mut App) -> Result<()> {
+        // Check for quit action first
+        if let Some(action) = app
+            .config
+            .navigation
+            .key_mapping
+            .get_action(key, KeyModifiers::empty())
+        {
+            if action == crate::navigation::types::NavigationAction::Quit {
+                // Close the modal instead of quitting the application
+                if app.show_themes_modal {
+                    app.toggle_themes_modal();
+                } else if app.show_connection_modal {
+                    app.toggle_connection_modal();
+                } else if app.show_deletion_modal {
+                    app.show_deletion_modal = false;
+                    if let Some((_, _, state)) = app
+                        .selected_result_tab_index
+                        .and_then(|idx| app.result_tabs.get_mut(idx))
+                    {
+                        state.rows_marked_for_deletion.clear();
+                    }
+                }
+                return Ok(());
+            }
+        }
+
+        match key {
+            KeyCode::Esc => {
+                app.toggle_themes_modal();
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     async fn handle_connection_modal_input_normal_mode(key: KeyCode, app: &mut App) -> Result<()> {
+        // Check for quit action first
+        if let Some(action) = app
+            .config
+            .navigation
+            .key_mapping
+            .get_action(key, KeyModifiers::empty())
+        {
+            if action == crate::navigation::types::NavigationAction::Quit {
+                // Close the modal instead of quitting the application
+                if app.show_themes_modal {
+                    app.toggle_themes_modal();
+                } else if app.show_connection_modal {
+                    app.toggle_connection_modal();
+                } else if app.show_deletion_modal {
+                    app.show_deletion_modal = false;
+                    if let Some((_, _, state)) = app
+                        .selected_result_tab_index
+                        .and_then(|idx| app.result_tabs.get_mut(idx))
+                    {
+                        state.rows_marked_for_deletion.clear();
+                    }
+                }
+                return Ok(());
+            }
+        }
+
         // First try the navigation system for mapped keys
         if Self::handle_navigation_key(key, KeyModifiers::empty(), app) {
             return Ok(());
@@ -365,6 +479,32 @@ impl NavigationInputHandler {
     }
 
     async fn handle_connection_modal_input_insert_mode(key: KeyCode, app: &mut App) -> Result<()> {
+        // Check for quit action first (but not when typing text)
+        if let Some(action) = app
+            .config
+            .navigation
+            .key_mapping
+            .get_action(key, KeyModifiers::empty())
+        {
+            if action == crate::navigation::types::NavigationAction::Quit {
+                // Close the modal instead of quitting the application
+                if app.show_themes_modal {
+                    app.toggle_themes_modal();
+                } else if app.show_connection_modal {
+                    app.toggle_connection_modal();
+                } else if app.show_deletion_modal {
+                    app.show_deletion_modal = false;
+                    if let Some((_, _, state)) = app
+                        .selected_result_tab_index
+                        .and_then(|idx| app.result_tabs.get_mut(idx))
+                    {
+                        state.rows_marked_for_deletion.clear();
+                    }
+                }
+                return Ok(());
+            }
+        }
+
         match key {
             KeyCode::Esc => {
                 app.input_mode = crate::app::InputMode::Normal;
@@ -697,42 +837,56 @@ impl NavigationInputHandler {
 
     async fn handle_query_input_insert_mode(
         key: KeyCode,
-        _modifiers: KeyModifiers,
+        modifiers: KeyModifiers,
         app: &mut App,
     ) -> Result<()> {
         match key {
             KeyCode::Esc => {
                 app.input_mode = crate::app::InputMode::Normal;
-                // Sync navigation manager's vim mode
                 app.navigation_manager
                     .box_manager_mut()
                     .vim_editor_mut()
                     .mode = crate::navigation::types::VimMode::Normal;
+                // Sync content back to query state
+                app.sync_vim_editor_to_query_state();
             }
             KeyCode::Enter => {
+                // Sync content back to query state before executing
+                app.sync_vim_editor_to_query_state();
                 if let Err(e) = app.refresh_results().await {
                     let _ = crate::logging::error(&format!("Error refreshing results: {}", e));
                 }
                 app.input_mode = crate::app::InputMode::Normal;
-                // Sync navigation manager's vim mode
                 app.navigation_manager
                     .box_manager_mut()
                     .vim_editor_mut()
                     .mode = crate::navigation::types::VimMode::Normal;
             }
-            KeyCode::Char(c) => app.insert_char(c),
-            KeyCode::Backspace => app.delete_char(),
-            KeyCode::Up => app.handle_navigation(OldNavigationAction::Direction(OldDirection::Up)),
-            KeyCode::Down => {
-                app.handle_navigation(OldNavigationAction::Direction(OldDirection::Down))
+            KeyCode::Char('y') => {
+                // Handle yank word in insert mode
+                let vim_editor = app.navigation_manager.box_manager_mut().vim_editor_mut();
+                if let Some(status) = vim_editor.yank_word() {
+                    app.status_message = Some(format!("DEBUG: {}", status));
+                }
+                // Sync cursor position back to app
+                app.cursor_position = vim_editor.cursor_position();
             }
-            KeyCode::Left => {
-                app.handle_navigation(OldNavigationAction::Direction(OldDirection::Left))
+            KeyCode::Char('Y') => {
+                // Handle yank line in insert mode
+                let vim_editor = app.navigation_manager.box_manager_mut().vim_editor_mut();
+                if let Some(status) = vim_editor.yank_line() {
+                    app.status_message = Some(format!("DEBUG: {}", status));
+                }
+                // Sync cursor position back to app
+                app.cursor_position = vim_editor.cursor_position();
             }
-            KeyCode::Right => {
-                app.handle_navigation(OldNavigationAction::Direction(OldDirection::Right))
+            _ => {
+                // Let VimEditor handle all other keys
+                let vim_editor = app.navigation_manager.box_manager_mut().vim_editor_mut();
+                vim_editor.handle_key(key, modifiers);
+                // Sync cursor position back to app
+                app.cursor_position = vim_editor.cursor_position();
             }
-            _ => {}
         }
         Ok(())
     }
@@ -761,6 +915,19 @@ impl NavigationInputHandler {
         app: &mut App,
     ) -> Result<()> {
         if app.show_deletion_modal {
+            // Check for quit action first
+            if let Some(action) = app
+                .config
+                .navigation
+                .key_mapping
+                .get_action(key, KeyModifiers::empty())
+            {
+                if action == crate::navigation::types::NavigationAction::Quit {
+                    app.quit();
+                    return Ok(());
+                }
+            }
+
             match key {
                 KeyCode::Esc => {
                     app.show_deletion_modal = false;
