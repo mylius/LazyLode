@@ -12,14 +12,16 @@ use crate::app::{App, InputMode};
 use crate::database::ConnectionStatus;
 use crate::logging;
 
+pub mod components;
 pub mod layout;
-mod modal;
+pub mod modal_manager;
+pub mod modals;
+pub mod panes;
 pub mod types;
 
 #[cfg(test)]
 mod tab_shortening_tests;
 
-pub use modal::{render_connection_modal, render_deletion_modal, render_themes_modal};
 pub use types::Pane;
 
 /// Renders the entire UI of the application.
@@ -42,14 +44,8 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_status_bar(frame, app, chunks[0]);
     render_main_content(frame, app, chunks[1]);
 
-    // Render appropriate modal if active
-    if app.show_connection_modal {
-        render_connection_modal(frame, app);
-    } else if app.show_deletion_modal {
-        render_deletion_modal(frame, app);
-    } else if app.show_themes_modal {
-        render_themes_modal(frame, app);
-    }
+    // Render modals using the modal manager
+    app.modal_manager.render_all(frame, app);
 
     // Render floating command window if in command mode
     if app.input_mode == InputMode::Command {
@@ -59,18 +55,25 @@ pub fn render(frame: &mut Frame, app: &App) {
 
 /// Renders the status bar at the top of the UI.
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
-    // Use new navigation system mode indicator
-    let mode = app.navigation_manager.get_mode_indicator();
+    // Determine mode indicator - check modal first, then navigation system
+    let mode = if let Some(vim_mode) = app.modal_manager.get_active_mode() {
+        match vim_mode {
+            crate::navigation::types::VimMode::Normal => "NORMAL".to_string(),
+            crate::navigation::types::VimMode::Insert => "INSERT".to_string(),
+            crate::navigation::types::VimMode::Visual => "VISUAL".to_string(),
+            crate::navigation::types::VimMode::Command => "COMMAND".to_string(),
+        }
+    } else {
+        app.navigation_manager.get_mode_indicator()
+    };
 
     // Determine what to show in the navigation info section
     let nav_info = if app.input_mode == InputMode::Command {
         "Command".to_string()
-    } else if app.show_connection_modal {
-        "Add Connection".to_string()
-    } else if app.show_deletion_modal {
-        "Delete Confirmation".to_string()
-    } else if app.show_themes_modal {
-        "Themes".to_string()
+    } else if app.modal_manager.has_modals() {
+        app.modal_manager
+            .get_active_title()
+            .unwrap_or_else(|| "Modal".to_string())
     } else {
         app.navigation_manager.get_navigation_info()
     };
@@ -308,8 +311,10 @@ fn render_main_panel(frame: &mut Frame, app: &App, area: Rect) {
         .constraints([Constraint::Length(6), Constraint::Min(1)])
         .split(area);
 
-    render_query_input(frame, app, chunks[0]);
     render_results_panel(frame, app, chunks[1]);
+    
+    // Render query input pane
+    app.query_input_pane.render(frame, app, chunks[0]);
 }
 
 fn render_query_input(frame: &mut Frame, app: &App, area: Rect) {

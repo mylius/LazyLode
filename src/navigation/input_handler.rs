@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::input::{Action, NavigationAction as OldNavigationAction, TreeAction};
-use crate::navigation::types::Pane as OldPane;
+use crate::navigation::types::{NavigationAction, Pane as OldPane};
 use crate::ui::types::Direction as OldDirection;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -12,18 +12,87 @@ pub struct NavigationInputHandler;
 impl NavigationInputHandler {
     /// Handle a key event using the new navigation system
     pub async fn handle_key(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
-        // Handle modal input (always available when modal is shown)
-        if app.show_connection_modal {
-            if let crate::app::ActiveBlock::ConnectionModal = app.active_block {
-                Self::handle_connection_modal_input(key, app).await?;
+        // Handle modal input using the modal manager
+        if app.modal_manager.has_modals() {
+            // Allow command mode to be opened even when modal is active
+            if let Some(action) = app
+                .navigation_manager
+                .config()
+                .key_mapping
+                .get_action(key, modifiers)
+            {
+                match action {
+                    NavigationAction::EnterCommandMode => {
+                        app.input_mode = crate::app::InputMode::Command;
+                        app.command_input.clear();
+                        app.command_buffer.clear();
+                        app.update_command_suggestions();
+                        // Ignore the ":" character that triggered command mode
+                        return Ok(());
+                    }
+                    NavigationAction::Cancel | NavigationAction::Quit => {
+                        app.modal_manager.close_active();
+                        return Ok(());
+                    }
+                    _ => {}
+                }
             }
-            return Ok(());
-        }
 
-        // Handle themes modal input
-        if app.show_themes_modal {
-            Self::handle_themes_modal_input(key, app).await?;
-            return Ok(());
+            // Delegate all other input to the modal
+            if app.input_mode != crate::app::InputMode::Command {
+                // Check common modal keys first
+                let common_result =
+                    crate::ui::modal_manager::utils::handle_common_keys(key, modifiers, app);
+                if let Some(result) = common_result {
+                    if matches!(result, crate::ui::modal_manager::ModalResult::Closed) {
+                        app.modal_manager.close_active();
+                    }
+                    return Ok(());
+                }
+
+                // For all modals, use their own handle_input
+                // Clone key mapping first to avoid borrow conflicts
+                let key_mapping = app.navigation_manager.config().key_mapping.clone();
+                let nav_action = key_mapping.get_action(key, modifiers);
+
+                let result = if let Some(modal) = app.modal_manager.stack.last_mut() {
+                    // Pass the navigation action we already resolved
+                    modal.handle_input(key, modifiers, nav_action)
+                } else {
+                    crate::ui::modal_manager::ModalResult::Continue
+                };
+
+                // Process result with mutable access to app
+                match result {
+                    crate::ui::modal_manager::ModalResult::Closed => {
+                        app.modal_manager.close_active();
+                    }
+                    crate::ui::modal_manager::ModalResult::Action(action) => {
+                        // Handle modal actions
+                        if action.starts_with("apply_theme:") {
+                            let theme_name = action.strip_prefix("apply_theme:").unwrap_or("");
+                            let _ = app.switch_theme(theme_name);
+                            app.modal_manager.close_active();
+                        } else if action.starts_with("create_connection:") {
+                            // TODO: Parse and create connection
+                            let parts: Vec<&str> = action.split(':').collect();
+                            if parts.len() >= 6 {
+                                let name = parts[1];
+                                let host = parts[2];
+                                let port = parts[3];
+                                let _username = parts[4];
+                                let _password = parts[5];
+                                let _database = if parts.len() > 6 { parts[6] } else { "" };
+                                // TODO: Actually create the connection in app
+                                println!("Create connection: {name}@{host}:{port}/{_database}");
+                                app.modal_manager.close_active();
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                return Ok(());
+            }
         }
 
         // Handle command mode input
@@ -329,7 +398,7 @@ impl NavigationInputHandler {
                 true
             }
             crate::navigation::types::NavigationAction::Search => {
-                if !app.show_connection_modal {
+                if !app.modal_manager.has_modals() {
                     app.focus_where_input();
                 }
                 true
@@ -353,9 +422,10 @@ impl NavigationInputHandler {
         // Search key is now handled by the navigation system mappings
 
         // Handle modal input
-        if app.show_connection_modal {
+        if app.modal_manager.has_modals() {
             if let crate::app::ActiveBlock::ConnectionModal = app.active_block {
-                Self::handle_connection_modal_input(key, app).await?;
+                // Handle connection modal input - this will be handled by the modal manager
+                return Ok(());
             }
             return Ok(());
         }
@@ -379,253 +449,6 @@ impl NavigationInputHandler {
             }
         }
 
-        Ok(())
-    }
-
-    async fn handle_connection_modal_input(key: KeyCode, app: &mut App) -> Result<()> {
-        match app.input_mode {
-            crate::app::InputMode::Normal => {
-                Self::handle_connection_modal_input_normal_mode(key, app).await
-            }
-            crate::app::InputMode::Insert => {
-                Self::handle_connection_modal_input_insert_mode(key, app).await
-            }
-            _ => Ok(()),
-        }
-    }
-
-    async fn handle_themes_modal_input(key: KeyCode, app: &mut App) -> Result<()> {
-        // Check for quit action first
-        if let Some(action) = app
-            .config
-            .navigation
-            .key_mapping
-            .get_action(key, KeyModifiers::empty())
-        {
-            if action == crate::navigation::types::NavigationAction::Quit {
-                // Close the modal instead of quitting the application
-                if app.show_themes_modal {
-                    app.toggle_themes_modal();
-                } else if app.show_connection_modal {
-                    app.toggle_connection_modal();
-                } else if app.show_deletion_modal {
-                    app.show_deletion_modal = false;
-                    if let Some((_, _, state)) = app
-                        .selected_result_tab_index
-                        .and_then(|idx| app.result_tabs.get_mut(idx))
-                    {
-                        state.rows_marked_for_deletion.clear();
-                    }
-                }
-                return Ok(());
-            }
-        }
-
-        match key {
-            KeyCode::Esc => {
-                app.toggle_themes_modal();
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    async fn handle_connection_modal_input_normal_mode(key: KeyCode, app: &mut App) -> Result<()> {
-        // Check for quit action first
-        if let Some(action) = app
-            .config
-            .navigation
-            .key_mapping
-            .get_action(key, KeyModifiers::empty())
-        {
-            if action == crate::navigation::types::NavigationAction::Quit {
-                // Close the modal instead of quitting the application
-                if app.show_themes_modal {
-                    app.toggle_themes_modal();
-                } else if app.show_connection_modal {
-                    app.toggle_connection_modal();
-                } else if app.show_deletion_modal {
-                    app.show_deletion_modal = false;
-                    if let Some((_, _, state)) = app
-                        .selected_result_tab_index
-                        .and_then(|idx| app.result_tabs.get_mut(idx))
-                    {
-                        state.rows_marked_for_deletion.clear();
-                    }
-                }
-                return Ok(());
-            }
-        }
-
-        // First try the navigation system for mapped keys
-        if Self::handle_navigation_key(key, KeyModifiers::empty(), app) {
-            return Ok(());
-        }
-
-        // Fall back to modal-specific handling
-        match key {
-            KeyCode::Esc => {
-                app.toggle_connection_modal();
-            }
-            KeyCode::Down => {
-                app.connection_form.current_field = (app.connection_form.current_field + 1) % 7;
-            }
-            KeyCode::Up => {
-                app.connection_form.current_field = (app.connection_form.current_field + 6) % 7;
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    async fn handle_connection_modal_input_insert_mode(key: KeyCode, app: &mut App) -> Result<()> {
-        // Check for quit action first (but not when typing text)
-        if let Some(action) = app
-            .config
-            .navigation
-            .key_mapping
-            .get_action(key, KeyModifiers::empty())
-        {
-            if action == crate::navigation::types::NavigationAction::Quit {
-                // Close the modal instead of quitting the application
-                if app.show_themes_modal {
-                    app.toggle_themes_modal();
-                } else if app.show_connection_modal {
-                    app.toggle_connection_modal();
-                } else if app.show_deletion_modal {
-                    app.show_deletion_modal = false;
-                    if let Some((_, _, state)) = app
-                        .selected_result_tab_index
-                        .and_then(|idx| app.result_tabs.get_mut(idx))
-                    {
-                        state.rows_marked_for_deletion.clear();
-                    }
-                }
-                return Ok(());
-            }
-        }
-
-        match key {
-            KeyCode::Esc => {
-                app.input_mode = crate::app::InputMode::Normal;
-                // Sync navigation manager's vim mode
-                app.navigation_manager
-                    .box_manager_mut()
-                    .vim_editor_mut()
-                    .mode = crate::navigation::types::VimMode::Normal;
-            }
-            KeyCode::Enter => {
-                app.save_connection();
-                app.toggle_connection_modal();
-                app.input_mode = crate::app::InputMode::Normal;
-                // Sync navigation manager's vim mode
-                app.navigation_manager
-                    .box_manager_mut()
-                    .vim_editor_mut()
-                    .mode = crate::navigation::types::VimMode::Normal;
-            }
-            KeyCode::Down | KeyCode::Up => match key {
-                KeyCode::Down => {
-                    app.connection_form.current_field = (app.connection_form.current_field + 1) % 7;
-                }
-                KeyCode::Up => {
-                    app.connection_form.current_field = (app.connection_form.current_field + 6) % 7;
-                }
-                _ => {}
-            },
-            KeyCode::Backspace => match app.connection_form.current_field {
-                0 => {
-                    app.connection_form.name.pop();
-                }
-                1 => {
-                    app.connection_form.host.pop();
-                }
-                2 => {
-                    app.connection_form.port.pop();
-                }
-                3 => {
-                    app.connection_form.username.pop();
-                }
-                4 => {
-                    app.connection_form.password.pop();
-                }
-                5 => {
-                    app.connection_form.database.pop();
-                }
-                6 => {
-                    app.connection_form.ssh_tunnel_name = None;
-                }
-                _ => {}
-            },
-            KeyCode::Left => {
-                if app.connection_form.current_field == 6 {
-                    let names: Vec<String> = app
-                        .config
-                        .ssh_tunnels
-                        .iter()
-                        .map(|t| t.name.clone())
-                        .collect();
-                    if names.is_empty() {
-                        app.connection_form.ssh_tunnel_name = None;
-                    } else {
-                        let current_idx = app
-                            .connection_form
-                            .ssh_tunnel_name
-                            .as_ref()
-                            .and_then(|n| names.iter().position(|x| x == n))
-                            .unwrap_or(0);
-                        let new_idx = if current_idx == 0 {
-                            None
-                        } else {
-                            Some(current_idx - 1)
-                        };
-                        app.connection_form.ssh_tunnel_name = new_idx.map(|i| names[i].clone());
-                    }
-                }
-            }
-            KeyCode::Right => {
-                if app.connection_form.current_field == 6 {
-                    let names: Vec<String> = app
-                        .config
-                        .ssh_tunnels
-                        .iter()
-                        .map(|t| t.name.clone())
-                        .collect();
-                    if names.is_empty() {
-                        app.connection_form.ssh_tunnel_name = None;
-                    } else {
-                        let maybe_idx = app
-                            .connection_form
-                            .ssh_tunnel_name
-                            .as_ref()
-                            .and_then(|n| names.iter().position(|x| x == n));
-                        let new_idx = match maybe_idx {
-                            None => Some(0),
-                            Some(i) if i + 1 < names.len() => Some(i + 1),
-                            _ => None,
-                        };
-                        app.connection_form.ssh_tunnel_name = new_idx.map(|i| names[i].clone());
-                    }
-                }
-            }
-            KeyCode::Char(c) => {
-                if app.connection_form.current_field == 2 {
-                    if c.is_ascii_digit() {
-                        app.connection_form.port.push(c);
-                    }
-                } else if app.connection_form.current_field != 6 {
-                    match app.connection_form.current_field {
-                        0 => app.connection_form.name.push(c),
-                        1 => app.connection_form.host.push(c),
-                        3 => app.connection_form.username.push(c),
-                        4 => app.connection_form.password.push(c),
-                        5 => app.connection_form.database.push(c),
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        }
         Ok(())
     }
 
@@ -741,7 +564,7 @@ impl NavigationInputHandler {
                                 .unwrap_or_default(),
                             ssh_tunnel_name: connection.ssh_tunnel_name.clone(),
                         };
-                        app.show_connection_modal = true;
+                        app.show_connection_modal();
                         app.active_block = crate::app::ActiveBlock::ConnectionModal;
                         app.input_mode = crate::app::InputMode::Normal;
                         // Sync navigation manager's vim mode
@@ -760,7 +583,7 @@ impl NavigationInputHandler {
             match key {
                 // 'q' is now handled by the navigation system mappings
                 KeyCode::Char('a') if modifiers.is_empty() => {
-                    app.show_connection_modal = true;
+                    app.show_connection_modal();
                     app.active_block = crate::app::ActiveBlock::ConnectionModal;
                     app.input_mode = crate::app::InputMode::Normal;
                     // Sync navigation manager's vim mode
@@ -780,6 +603,41 @@ impl NavigationInputHandler {
         modifiers: KeyModifiers,
         app: &mut App,
     ) -> Result<()> {
+        // Use the new QueryInputPane for input handling
+        let nav_action = app
+            .navigation_manager
+            .config()
+            .key_mapping
+            .get_action(key, modifiers);
+
+        if app
+            .query_input_pane
+            .handle_input(key, modifiers, nav_action)
+        {
+            return Ok(());
+        }
+
+        // Check if we need to handle Enter key for query execution
+        if key == KeyCode::Enter {
+            let current_mode = app.query_input_pane.current_vim_mode();
+            if current_mode == crate::navigation::types::VimMode::Insert {
+                // Sync content from QueryInputPane to query state before executing
+                let where_content = app.query_input_pane.get_where_content();
+                let order_by_content = app.query_input_pane.get_order_by_content();
+                if let Some(state) = app.current_query_state_mut() {
+                    state.where_clause = where_content;
+                    state.order_by_clause = order_by_content;
+                }
+                if let Err(e) = app.refresh_results().await {
+                    let _ = crate::logging::error(&format!("Error refreshing results: {}", e));
+                }
+                app.input_mode = crate::app::InputMode::Normal;
+                app.query_input_pane.exit_insert_mode();
+                return Ok(());
+            }
+        }
+
+        // Fallback to old system if pane didn't handle it
         match app.input_mode {
             crate::app::InputMode::Normal => {
                 // In normal mode, try the new navigation system first
@@ -851,16 +709,19 @@ impl NavigationInputHandler {
                 app.sync_vim_editor_to_query_state();
             }
             KeyCode::Enter => {
-                // Sync content back to query state before executing
-                app.sync_vim_editor_to_query_state();
+                // Sync content from QueryInputPane to query state before executing
+                let where_content = app.query_input_pane.get_where_content();
+                let order_by_content = app.query_input_pane.get_order_by_content();
+                if let Some(state) = app.current_query_state_mut() {
+                    state.where_clause = where_content;
+                    state.order_by_clause = order_by_content;
+                }
                 if let Err(e) = app.refresh_results().await {
                     let _ = crate::logging::error(&format!("Error refreshing results: {}", e));
                 }
                 app.input_mode = crate::app::InputMode::Normal;
-                app.navigation_manager
-                    .box_manager_mut()
-                    .vim_editor_mut()
-                    .mode = crate::navigation::types::VimMode::Normal;
+                // Exit insert mode for all fields in the pane
+                app.query_input_pane.exit_insert_mode();
             }
             KeyCode::Char('y') => {
                 // Handle yank word in insert mode
@@ -910,154 +771,11 @@ impl NavigationInputHandler {
     }
 
     async fn handle_results_input_normal_mode(
-        key: KeyCode,
-        modifiers: KeyModifiers,
-        app: &mut App,
+        _key: KeyCode,
+        _modifiers: KeyModifiers,
+        _app: &mut App,
     ) -> Result<()> {
-        if app.show_deletion_modal {
-            // Check for quit action first
-            if let Some(action) = app
-                .config
-                .navigation
-                .key_mapping
-                .get_action(key, KeyModifiers::empty())
-            {
-                if action == crate::navigation::types::NavigationAction::Quit {
-                    app.quit();
-                    return Ok(());
-                }
-            }
-
-            match key {
-                KeyCode::Esc => {
-                    app.show_deletion_modal = false;
-                    if let Some((_, _, state)) = app
-                        .selected_result_tab_index
-                        .and_then(|idx| app.result_tabs.get_mut(idx))
-                    {
-                        state.rows_marked_for_deletion.clear();
-                    }
-                }
-                KeyCode::Enter => {
-                    if let Err(e) = app.confirm_deletions().await {
-                        let _ =
-                            crate::logging::error(&format!("Error confirming deletions: {}", e));
-                    }
-                    app.show_deletion_modal = false;
-                }
-                _ => {}
-            }
-            return Ok(());
-        }
-
-        if key == KeyCode::Esc {
-            app.command_buffer.clear();
-            return Ok(());
-        }
-
-        // Handle key input with command buffer (non-exclusive):
-        if let KeyCode::Char(c) = key {
-            if modifiers.is_empty() {
-                app.command_buffer.push(c);
-                match crate::command::CommandProcessor::process_command(app) {
-                    Ok(true) => {
-                        return Ok(());
-                    }
-                    Ok(false) => {
-                        // fall through to action handling
-                    }
-                    Err(e) => {
-                        let _ = crate::logging::error(&format!("Error processing command: {}", e));
-                        app.command_buffer.clear();
-                    }
-                }
-            } else {
-                app.command_buffer.clear();
-            }
-        } else {
-            app.command_buffer.clear();
-        }
-
-        if let Some(action) = app.config.keymap.get_action(key, modifiers) {
-            match action {
-                Action::Navigation(nav_action) => match nav_action {
-                    OldNavigationAction::Direction(direction) => {
-                        app.move_cursor_in_results(direction);
-                    }
-                    OldNavigationAction::FocusPane(pane) => {
-                        app.active_pane = pane;
-                    }
-                    _ => {
-                        app.handle_navigation(nav_action);
-                    }
-                },
-                Action::FollowForeignKey => {
-                    if let Err(e) = app.follow_foreign_key().await {
-                        let _ =
-                            crate::logging::error(&format!("Error following foreign key: {}", e));
-                    }
-                }
-                Action::FirstPage => {
-                    if let Err(e) = app.first_page().await {
-                        let _ = crate::logging::error(&format!("Error going to first page: {}", e));
-                    }
-                }
-                Action::PreviousPage => {
-                    if let Err(e) = app.previous_page().await {
-                        let _ =
-                            crate::logging::error(&format!("Error going to previous page: {}", e));
-                    }
-                }
-                Action::NextPage => {
-                    if let Err(e) = app.next_page().await {
-                        let _ = crate::logging::error(&format!("Error going to next page: {}", e));
-                    }
-                }
-                Action::LastPage => {
-                    if let Err(e) = app.last_page().await {
-                        let _ = crate::logging::error(&format!("Error going to last page: {}", e));
-                    }
-                }
-                Action::Sort => {
-                    if let Err(e) = app.sort_results().await {
-                        let _ = crate::logging::error(&format!("Error sorting results: {}", e));
-                    }
-                }
-                Action::Delete => {
-                    app.toggle_row_deletion_mark();
-                }
-                Action::Confirm => {
-                    if app.show_deletion_modal {
-                        match app.confirm_deletions().await {
-                            Ok(_) => {
-                                app.show_deletion_modal = false;
-                            }
-                            Err(e) => {
-                                let _ = crate::logging::error(&format!(
-                                    "Error confirming deletions: {}",
-                                    e
-                                ));
-                            }
-                        }
-                    } else if app
-                        .selected_result_tab_index
-                        .and_then(|idx| app.result_tabs.get(idx))
-                        .map(|(_, _, state)| !state.rows_marked_for_deletion.is_empty())
-                        .unwrap_or(false)
-                    {
-                        app.show_deletion_modal = true;
-                    }
-                }
-                Action::Cancel => {
-                    if app.show_deletion_modal {
-                        app.show_deletion_modal = false;
-                        app.clear_deletion_marks();
-                        app.status_message = Some("Deletion cancelled".to_string());
-                    }
-                }
-                _ => {}
-            }
-        }
-        Ok(())
+        // TODO: Handle deletion modal when implemented
+        return Ok(());
     }
 }

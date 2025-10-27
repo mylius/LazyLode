@@ -275,7 +275,7 @@ impl Default for KeyMapping {
         );
         mapping.add_mapping(
             KeyCombination::simple(KeyCode::Char('a')),
-            NavigationAction::EnterInsertMode,
+            NavigationAction::Append,
         );
         mapping.add_mapping(
             KeyCombination::simple(KeyCode::Char('v')),
@@ -326,6 +326,14 @@ impl Default for KeyMapping {
         mapping.add_mapping(
             KeyCombination::simple(KeyCode::Char('Y')),
             NavigationAction::YankLine,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('p')),
+            NavigationAction::Paste,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('P')),
+            NavigationAction::Paste,
         );
 
         // Copy/paste
@@ -473,6 +481,7 @@ pub enum NavigationAction {
 
     // Editing modes
     EnterInsertMode,
+    Append,
     EnterVisualMode,
     EnterCommandMode,
     EnterNormalMode,

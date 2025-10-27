@@ -1,8 +1,14 @@
 use crate::navigation::types::{Direction, VimMode};
-use clipboard::{ClipboardContext, ClipboardProvider};
+use lazy_static::lazy_static;
+use std::sync::Mutex;
+
+lazy_static! {
+    static ref GLOBAL_YANK_BUFFER: Mutex<String> = Mutex::new(String::new());
+}
 use crossterm::event::{KeyCode, KeyModifiers};
 
 /// Vim-style text editor for handling text input with vim keybindings
+#[derive(Debug, Clone)]
 pub struct VimEditor {
     /// Current vim mode
     pub mode: VimMode,
@@ -16,8 +22,6 @@ pub struct VimEditor {
     last_key: Option<char>,
     /// Visual selection start position
     visual_start: Option<(usize, usize)>,
-    /// Yanked content for internal clipboard
-    yank_buffer: String,
 }
 
 impl VimEditor {
@@ -29,7 +33,6 @@ impl VimEditor {
             replace_mode: false,
             last_key: None,
             visual_start: None,
-            yank_buffer: String::new(),
         }
     }
 
@@ -166,6 +169,7 @@ impl VimEditor {
             }
             KeyCode::Char('Y') => {
                 self.yank_line();
+                self.last_key = None;
                 true
             }
             KeyCode::Esc => {
@@ -175,7 +179,13 @@ impl VimEditor {
                 self.visual_start = None;
                 true
             }
-            _ => false,
+            _ => {
+                // Clear last_key if it's a non-matching key (prevents stuck state)
+                if self.last_key.is_some() {
+                    self.last_key = None;
+                }
+                false
+            }
         }
     }
 
@@ -446,11 +456,16 @@ impl VimEditor {
 
     pub fn yank_line(&mut self) -> Option<String> {
         let (row, _) = self.cursor_position;
-        let lines: Vec<&str> = self.content.lines().collect();
+        let lines: Vec<&str> = if self.content.is_empty() {
+            vec![""]
+        } else {
+            self.content.lines().collect()
+        };
 
         if let Some(line) = lines.get(row) {
-            self.yank_buffer = line.to_string();
-            self.copy_to_system_clipboard(&self.yank_buffer);
+            if let Ok(mut global) = GLOBAL_YANK_BUFFER.lock() {
+                *global = (*line).to_string();
+            }
             Some(format!("Yanked line: {}", line))
         } else {
             None
@@ -462,8 +477,9 @@ impl VimEditor {
             let end = self.cursor_position;
             let selected_text = self.get_text_between(start, end);
             let status_msg = format!("Yanked selection: {}", selected_text);
-            self.yank_buffer = selected_text;
-            self.copy_to_system_clipboard(&self.yank_buffer);
+            if let Ok(mut global) = GLOBAL_YANK_BUFFER.lock() {
+                *global = selected_text.clone();
+            }
             Some(status_msg)
         } else {
             None
@@ -477,8 +493,9 @@ impl VimEditor {
         if let Some(line) = lines.get(row) {
             let word = self.get_word_at_position(line, col);
             let status_msg = format!("Yanked word: {}", word);
-            self.yank_buffer = word;
-            self.copy_to_system_clipboard(&self.yank_buffer);
+            if let Ok(mut global) = GLOBAL_YANK_BUFFER.lock() {
+                *global = word.clone();
+            }
             Some(status_msg)
         } else {
             None
@@ -491,8 +508,9 @@ impl VimEditor {
 
         if let Some(line) = lines.get(row) {
             let remaining = &line[col..];
-            self.yank_buffer = remaining.to_string();
-            self.copy_to_system_clipboard(&self.yank_buffer);
+            if let Ok(mut global) = GLOBAL_YANK_BUFFER.lock() {
+                *global = remaining.to_string();
+            }
             Some(format!("Yanked to line end: {}", remaining))
         } else {
             None
@@ -505,16 +523,38 @@ impl VimEditor {
 
         if let Some(line) = lines.get(row) {
             let before = &line[..col];
-            self.yank_buffer = before.to_string();
-            self.copy_to_system_clipboard(&self.yank_buffer);
+            if let Ok(mut global) = GLOBAL_YANK_BUFFER.lock() {
+                *global = before.to_string();
+            }
             Some(format!("Yanked to line start: {}", before))
         } else {
             None
         }
     }
 
-    pub fn get_yank_buffer(&self) -> &str {
-        &self.yank_buffer
+    pub fn paste(&mut self) {
+        let mut source = String::new();
+        if let Ok(global) = GLOBAL_YANK_BUFFER.lock() {
+            source = global.clone();
+        }
+        if source.is_empty() {
+            return;
+        }
+
+        let (row, col) = self.cursor_position;
+        let mut lines: Vec<String> = self.content.lines().map(|s| s.to_string()).collect();
+
+        if lines.is_empty() {
+            lines.push(String::new());
+        }
+
+        if let Some(line) = lines.get_mut(row) {
+            let insert_pos = col.min(line.len());
+            line.insert_str(insert_pos, &source);
+            self.cursor_position = (row, insert_pos + source.len());
+        }
+
+        self.content = lines.join("\n");
     }
 
     fn get_text_between(&self, start: (usize, usize), end: (usize, usize)) -> String {
@@ -575,11 +615,5 @@ impl VimEditor {
         }
     }
 
-    fn copy_to_system_clipboard(&self, text: &str) {
-        let mut ctx: ClipboardContext = match ClipboardProvider::new() {
-            Ok(ctx) => ctx,
-            Err(_) => return,
-        };
-        let _ = ctx.set_contents(text.to_string());
-    }
+    // No system clipboard integration; yanks are stored in a global in-app buffer
 }

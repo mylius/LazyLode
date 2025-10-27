@@ -5,14 +5,16 @@ use crate::logging;
 use crate::navigation::types::Pane;
 use crate::navigation::NavigationManager;
 use crate::ui::layout::QueryField;
+use crate::ui::modal_manager::ModalManager;
+use crate::ui::panes::query_input::QueryInputPane;
 use crate::ui::types::Direction;
 use clipboard::{ClipboardContext, ClipboardProvider};
 
 use crate::config::Config;
 use crate::database::core::ForeignKeyTarget;
 use crate::database::{
-    ConnectionConfig, ConnectionManager, ConnectionStatus, DatabaseType, PrefetchedDatabase,
-    PrefetchedSchema, PrefetchedStructure, QueryParams, QueryResult,
+    ConnectionConfig, ConnectionManager, ConnectionStatus, DatabaseType, PrefetchedStructure,
+    QueryParams, QueryResult,
 };
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
@@ -125,8 +127,7 @@ pub struct SchemaTreeItem {
 pub struct App {
     pub should_quit: bool,
     pub active_block: ActiveBlock,
-    pub show_connection_modal: bool,
-    pub show_themes_modal: bool,
+    pub modal_manager: ModalManager,
     pub saved_connections: Vec<ConnectionConfig>,
     pub selected_connection_idx: Option<usize>,
     pub connection_statuses: HashMap<String, ConnectionStatus>,
@@ -142,7 +143,6 @@ pub struct App {
     pub connection_tree: Vec<ConnectionTreeItem>,
     pub last_table_info: Option<(String, String, String)>,
     pub selected_result_tab_index: Option<usize>,
-    pub show_deletion_modal: bool,
     pub connection_manager: ConnectionManager,
     pub prefetched_structures: HashMap<String, PrefetchedStructure>,
     pub prefetch_receiver: Option<mpsc::UnboundedReceiver<PrefetchResult>>,
@@ -156,6 +156,7 @@ pub struct App {
     pub selected_suggestion: Option<usize>,
     pub suggestions_scroll_offset: usize,
     pub query: String,
+    pub query_input_pane: QueryInputPane,
 }
 
 impl App {
@@ -166,8 +167,7 @@ impl App {
         let mut app = Self {
             should_quit: false,
             active_block: ActiveBlock::Connections,
-            show_connection_modal: false,
-            show_themes_modal: false,
+            modal_manager: ModalManager::new(),
             saved_connections: config.connections.clone(),
             selected_connection_idx: None,
             connection_statuses: config
@@ -187,7 +187,6 @@ impl App {
             connection_tree: Vec::new(),
             last_table_info: None,
             selected_result_tab_index: None,
-            show_deletion_modal: false,
             connection_manager: ConnectionManager::new(),
             prefetched_structures: HashMap::new(),
             prefetch_receiver: None,
@@ -200,6 +199,7 @@ impl App {
             selected_suggestion: None,
             suggestions_scroll_offset: 0,
             query: String::new(),
+            query_input_pane: QueryInputPane::new(),
         };
 
         app.load_connections();
@@ -226,8 +226,7 @@ impl App {
         let mut app = Self {
             should_quit: false,
             active_block: ActiveBlock::Connections,
-            show_connection_modal: false,
-            show_themes_modal: false,
+            modal_manager: ModalManager::new(),
             saved_connections: config.connections.clone(),
             selected_connection_idx: None,
             connection_statuses: config
@@ -248,7 +247,6 @@ impl App {
             connection_tree: Vec::new(),
             last_table_info: None,
             selected_result_tab_index: None,
-            show_deletion_modal: false,
             connection_manager: ConnectionManager::new(),
             prefetched_structures: HashMap::new(),
             prefetch_receiver: None,
@@ -260,6 +258,7 @@ impl App {
             selected_suggestion: None,
             suggestions_scroll_offset: 0,
             navigation_manager: NavigationManager::new(navigation_config),
+            query_input_pane: QueryInputPane::new(),
         };
 
         app.load_connections();
@@ -552,20 +551,54 @@ impl App {
 
     /// Toggles the visibility of the themes modal.
     pub fn toggle_themes_modal(&mut self) {
-        self.show_themes_modal = !self.show_themes_modal;
-        if !self.show_themes_modal {
-            self.input_mode = InputMode::Normal;
+        use crate::ui::modals::ThemesModal;
+
+        // If themes modal is already open, bring it to the front
+        if self.modal_manager.focus_modal_with_title("Themes") {
+            return;
         }
+
+        // Otherwise, open it (allowing modal stacking)
+        let current_theme = self.config.theme_name.clone();
+        let themes_modal = Box::new(ThemesModal::new(current_theme));
+        self.modal_manager.push(themes_modal);
     }
 
     /// Toggles the visibility of the connection modal.
     pub fn toggle_connection_modal(&mut self) {
-        self.show_connection_modal = !self.show_connection_modal;
-        if self.show_connection_modal {
-            self.active_block = ActiveBlock::ConnectionModal;
-        } else {
-            self.input_mode = InputMode::Normal;
+        use crate::ui::modals::ConnectionModal;
+
+        // If connection modal is already open, bring it to the front
+        if self.modal_manager.focus_modal_with_title("New Connection") {
+            return;
         }
+
+        // Otherwise, open it (allowing modal stacking)
+        let connection_modal = Box::new(ConnectionModal::new());
+        self.modal_manager.push(connection_modal);
+        self.active_block = ActiveBlock::ConnectionModal;
+    }
+
+    /// Close the active modal
+    pub fn close_active_modal(&mut self) {
+        self.modal_manager.close_active();
+        self.input_mode = InputMode::Normal;
+    }
+
+    /// Show themes modal
+    pub fn show_themes_modal(&mut self) {
+        use crate::ui::modals::ThemesModal;
+        let current_theme = self.config.theme_name.clone();
+        let themes_modal = Box::new(ThemesModal::new(current_theme));
+        self.modal_manager.push(themes_modal);
+    }
+
+    /// Show connection modal
+    pub fn show_connection_modal(&mut self) {
+        use crate::ui::modals::ConnectionModal;
+        let connection_modal = Box::new(ConnectionModal::new());
+        self.modal_manager.push(connection_modal);
+        self.active_block = ActiveBlock::ConnectionModal;
     }
 
     /// Saves a new connection based on the data in `connection_form`.

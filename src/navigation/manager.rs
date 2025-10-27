@@ -114,6 +114,13 @@ impl NavigationManager {
                 self.box_manager.vim_editor_mut().mode = VimMode::Insert;
                 true
             }
+            NavigationAction::Append => {
+                // Move cursor right, then enter insert mode
+                let vim_editor = self.box_manager.vim_editor_mut();
+                vim_editor.move_cursor(crate::navigation::types::Direction::Right);
+                vim_editor.mode = VimMode::Insert;
+                true
+            }
             NavigationAction::EnterVisualMode => {
                 self.box_manager.vim_editor_mut().mode = VimMode::Visual;
                 true
