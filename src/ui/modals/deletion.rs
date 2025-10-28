@@ -34,20 +34,15 @@ impl Modal for DeletionModal {
 
     fn handle_input(
         &mut self,
-        key: KeyCode,
+        _key: KeyCode,
         _modifiers: KeyModifiers,
-        _nav_action: Option<crate::navigation::types::NavigationAction>,
+        nav_action: Option<crate::navigation::types::NavigationAction>,
     ) -> ModalResult {
-        // Handle common modal keys
-        match key {
-            KeyCode::Char('q') | KeyCode::Esc => {
-                return ModalResult::Closed;
-            }
-            _ => {}
+        use crate::navigation::types::NavigationAction;
+        match nav_action {
+            Some(NavigationAction::Cancel) | Some(NavigationAction::Quit) => ModalResult::Closed,
+            _ => ModalResult::Continue,
         }
-
-        // TODO: Implement deletion modal input handling
-        ModalResult::Continue
     }
 
     fn get_title(&self) -> &str {

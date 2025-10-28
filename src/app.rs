@@ -7,8 +7,8 @@ use crate::navigation::NavigationManager;
 use crate::ui::layout::QueryField;
 use crate::ui::modal_manager::ModalManager;
 use crate::ui::panes::query_input::QueryInputPane;
-use crate::ui::panes::sidebar::SidebarPane;
 use crate::ui::panes::results::ResultsPane;
+use crate::ui::panes::sidebar::SidebarPane;
 use crate::ui::types::Direction;
 use clipboard::{ClipboardContext, ClipboardProvider};
 
@@ -628,7 +628,7 @@ impl App {
         self.saved_connections.push(new_connection.clone());
         self.config
             .save_connections(&self.saved_connections)
-            .expect("Failed to save connections");
+            .unwrap_or_else(|err| eprintln!("Failed to save connections: {}", err));
 
         // Add to connection tree
         self.connection_tree.push(ConnectionTreeItem {
@@ -1254,7 +1254,7 @@ impl App {
             self.saved_connections[index] = updated_connection.clone();
             self.config
                 .save_connections(&self.saved_connections)
-                .expect("Failed to save connections");
+                .unwrap_or_else(|err| eprintln!("Failed to save connections: {}", err));
 
             // Update the connection tree
             if let Some(tree_item) = self.connection_tree.get_mut(index) {
@@ -1270,7 +1270,7 @@ impl App {
             self.saved_connections.remove(index);
             self.config
                 .save_connections(&self.saved_connections)
-                .expect("Failed to save connections");
+                .unwrap_or_else(|err| eprintln!("Failed to save connections: {}", err));
 
             // Remove from connection tree
             self.connection_tree.remove(index);

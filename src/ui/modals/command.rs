@@ -67,14 +67,18 @@ impl Modal for CommandModal {
 
     fn handle_input(
         &mut self,
-        key: KeyCode,
+        _key: KeyCode,
         _modifiers: KeyModifiers,
-        _nav_action: Option<crate::navigation::types::NavigationAction>,
+        nav_action: Option<crate::navigation::types::NavigationAction>,
     ) -> ModalResult {
-        match key {
-            KeyCode::Char('q') | KeyCode::Esc => ModalResult::Closed,
-            _ => ModalResult::Continue,
+        if let Some(action) = nav_action {
+            use crate::navigation::types::NavigationAction;
+            match action {
+                NavigationAction::Cancel | NavigationAction::Quit => return ModalResult::Closed,
+                _ => {}
+            }
         }
+        ModalResult::Continue
     }
 
     fn get_title(&self) -> &str {

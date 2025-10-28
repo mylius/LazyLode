@@ -153,45 +153,33 @@ impl Modal for ThemesModal {
 
     fn handle_input(
         &mut self,
-        key: KeyCode,
+        _key: KeyCode,
         _modifiers: KeyModifiers,
-        _nav_action: Option<crate::navigation::types::NavigationAction>,
+        nav_action: Option<crate::navigation::types::NavigationAction>,
     ) -> ModalResult {
-        // Handle common modal keys
-        match key {
-            KeyCode::Char('q') | KeyCode::Esc => {
+        use crate::navigation::types::NavigationAction;
+        match nav_action {
+            Some(NavigationAction::Cancel) | Some(NavigationAction::Quit) => {
                 return ModalResult::Closed;
+            }
+            Some(NavigationAction::MoveUp) => {
+                self.move_up();
+                return ModalResult::Continue;
+            }
+            Some(NavigationAction::MoveDown) => {
+                self.move_down();
+                return ModalResult::Continue;
+            }
+            Some(NavigationAction::Confirm) => {
+                if let Some(theme_name) = self.selected_theme() {
+                    return ModalResult::Action(format!("apply_theme:{}", theme_name));
+                } else {
+                    return ModalResult::Closed;
+                }
             }
             _ => {}
         }
-
-        match key {
-            KeyCode::Up => {
-                self.move_up();
-                ModalResult::Continue
-            }
-            KeyCode::Down => {
-                self.move_down();
-                ModalResult::Continue
-            }
-            KeyCode::Enter => {
-                // Return action to apply theme - handled by caller
-                if let Some(theme_name) = self.selected_theme() {
-                    ModalResult::Action(format!("apply_theme:{}", theme_name))
-                } else {
-                    ModalResult::Closed
-                }
-            }
-            KeyCode::Char('j') => {
-                self.move_down();
-                ModalResult::Continue
-            }
-            KeyCode::Char('k') => {
-                self.move_up();
-                ModalResult::Continue
-            }
-            _ => ModalResult::Continue,
-        }
+        ModalResult::Continue
     }
 
     fn get_title(&self) -> &str {
