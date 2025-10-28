@@ -7,6 +7,8 @@ use crate::navigation::NavigationManager;
 use crate::ui::layout::QueryField;
 use crate::ui::modal_manager::ModalManager;
 use crate::ui::panes::query_input::QueryInputPane;
+use crate::ui::panes::sidebar::SidebarPane;
+use crate::ui::panes::results::ResultsPane;
 use crate::ui::types::Direction;
 use clipboard::{ClipboardContext, ClipboardProvider};
 
@@ -157,6 +159,8 @@ pub struct App {
     pub suggestions_scroll_offset: usize,
     pub query: String,
     pub query_input_pane: QueryInputPane,
+    pub sidebar_pane: SidebarPane,
+    pub results_pane: ResultsPane,
 }
 
 impl App {
@@ -200,6 +204,8 @@ impl App {
             suggestions_scroll_offset: 0,
             query: String::new(),
             query_input_pane: QueryInputPane::new(),
+            sidebar_pane: SidebarPane::new(),
+            results_pane: ResultsPane::new(),
         };
 
         app.load_connections();
@@ -259,6 +265,8 @@ impl App {
             suggestions_scroll_offset: 0,
             navigation_manager: NavigationManager::new(navigation_config),
             query_input_pane: QueryInputPane::new(),
+            sidebar_pane: SidebarPane::new(),
+            results_pane: ResultsPane::new(),
         };
 
         app.load_connections();

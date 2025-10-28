@@ -27,7 +27,7 @@ impl NavigationInputHandler {
                         app.command_input.clear();
                         app.command_buffer.clear();
                         app.update_command_suggestions();
-                        // Ignore the ":" character that triggered command mode
+                        app.modal_manager.push(Box::new(crate::ui::modals::CommandModal::new()));
                         return Ok(());
                     }
                     NavigationAction::Cancel | NavigationAction::Quit => {
@@ -133,6 +133,7 @@ impl NavigationInputHandler {
                 app.command_buffer.clear();
                 app.command_suggestions.clear();
                 app.selected_suggestion = None;
+                app.modal_manager.close_active();
                 // Sync navigation manager's vim mode
                 app.navigation_manager
                     .box_manager_mut()
@@ -140,12 +141,24 @@ impl NavigationInputHandler {
                     .mode = crate::navigation::types::VimMode::Normal;
             }
             KeyCode::Enter => {
-                // Execute command - use selected suggestion if available, otherwise use current input
+                // Build command string first
                 let command = if let Some(suggestion) = app.get_selected_suggestion() {
                     suggestion.clone()
                 } else {
                     app.command_input.clone()
                 };
+
+                // Exit command mode and close the command modal BEFORE executing
+                app.input_mode = crate::app::InputMode::Normal;
+                app.command_input.clear();
+                app.command_suggestions.clear();
+                app.selected_suggestion = None;
+                app.modal_manager.close_active();
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
 
                 if !command.is_empty() {
                     // Sync command to command_buffer for processing
@@ -156,32 +169,19 @@ impl NavigationInputHandler {
 
                     // Process the command
                     match crate::command::CommandProcessor::process_command(app) {
-                        Ok(true) => {
-                            // Command was handled successfully
-                        }
+                        Ok(true) => {}
                         Ok(false) => {
-                            // Command not recognized
                             app.status_message = Some(format!("Unknown command: {}", command));
                         }
                         Err(e) => {
-                            let _ =
-                                crate::logging::error(&format!("Error processing command: {}", e));
+                            let _ = crate::logging::error(&format!(
+                                "Error processing command: {}",
+                                e
+                            ));
                             app.status_message = Some(format!("Error: {}", e));
                         }
                     }
                 }
-
-                // Exit command mode
-                app.input_mode = crate::app::InputMode::Normal;
-                app.command_input.clear();
-                app.command_buffer.clear();
-                app.command_suggestions.clear();
-                app.selected_suggestion = None;
-                // Sync navigation manager's vim mode
-                app.navigation_manager
-                    .box_manager_mut()
-                    .vim_editor_mut()
-                    .mode = crate::navigation::types::VimMode::Normal;
             }
             KeyCode::Backspace => {
                 // Delete last character
@@ -258,6 +258,15 @@ impl NavigationInputHandler {
         app: &mut App,
     ) -> bool {
         match action {
+            
+            // Open New Connection modal when pressing 'a' in Connections pane
+            crate::navigation::types::NavigationAction::Append => {
+                if app.active_pane == OldPane::Connections {
+                    app.show_connection_modal();
+                    return true;
+                }
+                app.navigation_manager.handle_action(action)
+            }
             // Mode switching actions - sync with app input mode
             crate::navigation::types::NavigationAction::EnterInsertMode => {
                 app.input_mode = crate::app::InputMode::Insert;
@@ -279,6 +288,9 @@ impl NavigationInputHandler {
                 app.command_input.clear();
                 app.command_buffer.clear();
                 app.update_command_suggestions();
+                app
+                    .modal_manager
+                    .push(Box::new(crate::ui::modals::CommandModal::new()));
                 app.navigation_manager.handle_action(action)
             }
             // Movement actions - delegate to app functions
