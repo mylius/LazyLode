@@ -56,10 +56,7 @@ impl SshTunnelProcess {
         // Give ssh some time to bind and establish forwarding; also detect early exit
         for _ in 0..10u8 {
             if let Some(status) = child.try_wait()? {
-                return Err(anyhow!(
-                    "ssh process exited early with status: {}",
-                    status
-                ));
+                return Err(anyhow!("ssh process exited early with status: {}", status));
             }
             sleep(Duration::from_millis(100)).await;
         }
@@ -74,10 +71,11 @@ impl SshTunnelProcess {
 }
 
 fn allocate_free_local_port() -> Result<u16> {
-    let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let addr: SocketAddr = "127.0.0.1:0"
+        .parse()
+        .context("failed to parse local socket address")?;
     let listener = TcpListener::bind(addr).context("failed to bind local ephemeral port")?;
     let local_port = listener.local_addr()?.port();
     drop(listener);
     Ok(local_port)
 }
-

@@ -40,6 +40,9 @@ impl<'a, B: Backend> Runner<'a, B> {
             let _ = logging::error(&format!("Error checking background prefetching: {}", err));
         }
 
+        // Clear expired status messages
+        self.app.clear_expired_status_message();
+
         self.terminal
             .draw(|frame| ui::render(frame, &mut self.app))?;
 

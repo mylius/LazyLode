@@ -22,8 +22,7 @@ impl NavigationManager {
             Pane::Connections,
             Pane::QueryInput,
             Pane::Results,
-            Pane::SchemaExplorer,
-            Pane::CommandLine,
+            // Pane::SchemaExplorer, // Removed - not implemented in UI
         ];
 
         Self {
@@ -57,8 +56,15 @@ impl NavigationManager {
             NavigationAction::FocusConnections => self.focus_pane(Pane::Connections),
             NavigationAction::FocusQueryInput => self.focus_pane(Pane::QueryInput),
             NavigationAction::FocusResults => self.focus_pane(Pane::Results),
-            NavigationAction::FocusSchemaExplorer => self.focus_pane(Pane::SchemaExplorer),
-            NavigationAction::FocusCommandLine => self.focus_pane(Pane::CommandLine),
+            NavigationAction::FocusSchemaExplorer => {
+                // SchemaExplorer pane is not implemented in UI
+                false
+            }
+            NavigationAction::FocusCommandLine => {
+                // Command mode is handled via InputMode::Command, not as a navigable pane
+                // This action should be handled by the input handler, not the navigation manager
+                false
+            }
             NavigationAction::NextPane => self.next_pane(),
             NavigationAction::PreviousPane => self.previous_pane(),
 
@@ -106,6 +112,13 @@ impl NavigationManager {
             // Mode switching
             NavigationAction::EnterInsertMode => {
                 self.box_manager.vim_editor_mut().mode = VimMode::Insert;
+                true
+            }
+            NavigationAction::Append => {
+                // Move cursor right, then enter insert mode
+                let vim_editor = self.box_manager.vim_editor_mut();
+                vim_editor.move_cursor(crate::navigation::types::Direction::Right);
+                vim_editor.mode = VimMode::Insert;
                 true
             }
             NavigationAction::EnterVisualMode => {
@@ -184,6 +197,40 @@ impl NavigationManager {
             NavigationAction::Cut => {
                 // This would be handled by the main application
                 false
+            }
+
+            // Yank operations
+            NavigationAction::YankLine => {
+                if let Some(_status) = self.box_manager.vim_editor_mut().yank_line() {
+
+                    // We'll need to handle status messages differently since we don't have access to app here
+                    // For now, we'll just return true to indicate the operation was handled
+                }
+                true
+            }
+            NavigationAction::YankWord => {
+                if let Some(_status) = self.box_manager.vim_editor_mut().yank_word() {
+                    // We'll need to handle status messages differently since we don't have access to app here
+                }
+                true
+            }
+            NavigationAction::YankToLineEnd => {
+                if let Some(_status) = self.box_manager.vim_editor_mut().yank_to_line_end() {
+                    // We'll need to handle status messages differently since we don't have access to app here
+                }
+                true
+            }
+            NavigationAction::YankToLineStart => {
+                if let Some(_status) = self.box_manager.vim_editor_mut().yank_to_line_start() {
+                    // We'll need to handle status messages differently since we don't have access to app here
+                }
+                true
+            }
+            NavigationAction::YankSelection => {
+                if let Some(_status) = self.box_manager.vim_editor_mut().yank_selection() {
+                    // We'll need to handle status messages differently since we don't have access to app here
+                }
+                true
             }
         }
     }
@@ -413,7 +460,7 @@ impl NavigationManager {
             Pane::Connections => "Connections",
             Pane::QueryInput => "Query",
             Pane::Results => "Results",
-            Pane::SchemaExplorer => "Schema",
+            Pane::SchemaExplorer => "Schema", // Still defined but not navigable
             Pane::CommandLine => "Command",
         };
 

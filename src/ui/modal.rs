@@ -174,3 +174,100 @@ pub fn render_deletion_modal(frame: &mut Frame, app: &crate::app::App) {
         chunks[2],
     );
 }
+
+pub fn render_themes_modal(frame: &mut Frame, app: &crate::app::App) {
+    let area = centered_rect(50, 60, frame.area());
+
+    frame.render_widget(Clear, area);
+
+    // Create modal block
+    let block = Block::default()
+        .title("Available Themes")
+        .borders(Borders::ALL)
+        .style(
+            Style::default()
+                .fg(app.config.theme.text_color())
+                .bg(app.config.theme.surface1_color()),
+        );
+
+    frame.render_widget(block.clone(), area);
+
+    // Get inner area for content
+    let inner_area = block.inner(area);
+
+    // Create layout for header and theme list
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([
+            Constraint::Length(2), // Header
+            Constraint::Min(3),    // Theme list
+            Constraint::Length(2), // Footer
+        ])
+        .split(inner_area);
+
+    // Render header
+    let header = "Select a theme to switch to:";
+    frame.render_widget(
+        Paragraph::new(header).style(Style::default().fg(app.config.theme.text_color())),
+        chunks[0],
+    );
+
+    // Get and render themes
+    if let Ok(themes) = crate::config::Config::list_themes() {
+        if themes.is_empty() {
+            let no_themes = "No themes available";
+            frame.render_widget(
+                Paragraph::new(no_themes).style(Style::default().fg(app.config.theme.text_color())),
+                chunks[1],
+            );
+        } else {
+            // Create a list of theme items
+            let theme_items: Vec<_> = themes
+                .iter()
+                .map(|theme| {
+                    let is_current = theme == &app.config.theme_name;
+                    let display_text = if is_current {
+                        format!("{} (current)", theme)
+                    } else {
+                        theme.clone()
+                    };
+                    
+                    Paragraph::new(display_text).style(
+                        Style::default()
+                            .fg(if is_current {
+                                app.config.theme.accent_color()
+                            } else {
+                                app.config.theme.text_color()
+                            })
+                            .add_modifier(if is_current { Modifier::BOLD } else { Modifier::empty() }),
+                    )
+                })
+                .collect();
+
+            // Render themes in a scrollable area
+            let theme_list_height = themes.len().min(15); // Limit to 15 themes for display
+            let theme_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(
+                    (0..theme_list_height)
+                        .map(|_| Constraint::Length(1))
+                        .collect::<Vec<_>>(),
+                )
+                .split(chunks[1]);
+
+            for (i, theme_item) in theme_items.iter().enumerate() {
+                if i < theme_chunks.len() {
+                    frame.render_widget(theme_item.clone(), theme_chunks[i]);
+                }
+            }
+        }
+    }
+
+    // Render footer with instructions
+    let footer = "Press Esc to close";
+    frame.render_widget(
+        Paragraph::new(footer).style(Style::default().fg(app.config.theme.text_color())),
+        chunks[2],
+    );
+}

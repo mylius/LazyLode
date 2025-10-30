@@ -1,7 +1,14 @@
 use crate::navigation::types::{Direction, VimMode};
+use lazy_static::lazy_static;
+use std::sync::Mutex;
+
+lazy_static! {
+    static ref GLOBAL_YANK_BUFFER: Mutex<String> = Mutex::new(String::new());
+}
 use crossterm::event::{KeyCode, KeyModifiers};
 
 /// Vim-style text editor for handling text input with vim keybindings
+#[derive(Debug, Clone)]
 pub struct VimEditor {
     /// Current vim mode
     pub mode: VimMode,
@@ -13,6 +20,8 @@ pub struct VimEditor {
     replace_mode: bool,
     /// Last key pressed (for double-key commands like 'dd')
     last_key: Option<char>,
+    /// Visual selection start position
+    visual_start: Option<(usize, usize)>,
 }
 
 impl VimEditor {
@@ -23,6 +32,13 @@ impl VimEditor {
             cursor_position: (0, 0),
             replace_mode: false,
             last_key: None,
+            visual_start: None,
+        }
+    }
+
+    pub fn set_yank_buffer(&mut self, text: String) {
+        if let Ok(mut global) = GLOBAL_YANK_BUFFER.lock() {
+            *global = text;
         }
     }
 
@@ -145,15 +161,37 @@ impl VimEditor {
             }
             KeyCode::Char('v') => {
                 self.mode = VimMode::Visual;
+                self.visual_start = Some(self.cursor_position);
+                true
+            }
+            KeyCode::Char('y') => {
+                if self.last_key == Some('y') {
+                    self.yank_line();
+                    self.last_key = None;
+                } else {
+                    self.last_key = Some('y');
+                }
+                true
+            }
+            KeyCode::Char('Y') => {
+                self.yank_line();
+                self.last_key = None;
                 true
             }
             KeyCode::Esc => {
                 self.mode = VimMode::Normal;
                 self.replace_mode = false;
                 self.last_key = None;
+                self.visual_start = None;
                 true
             }
-            _ => false,
+            _ => {
+                // Clear last_key if it's a non-matching key (prevents stuck state)
+                if self.last_key.is_some() {
+                    self.last_key = None;
+                }
+                false
+            }
         }
     }
 
@@ -204,6 +242,7 @@ impl VimEditor {
         match key {
             KeyCode::Esc => {
                 self.mode = VimMode::Normal;
+                self.visual_start = None;
                 true
             }
             KeyCode::Char('h') | KeyCode::Left => {
@@ -220,6 +259,12 @@ impl VimEditor {
             }
             KeyCode::Char('l') | KeyCode::Right => {
                 self.move_cursor(Direction::Right);
+                true
+            }
+            KeyCode::Char('y') => {
+                self.yank_selection();
+                self.mode = VimMode::Normal;
+                self.visual_start = None;
                 true
             }
             _ => false,
@@ -413,5 +458,166 @@ impl VimEditor {
         lines.insert(row, String::new());
         self.cursor_position = (row, 0);
         self.content = lines.join("\n");
+    }
+
+    pub fn yank_line(&mut self) -> Option<String> {
+        let (row, _) = self.cursor_position;
+        let lines: Vec<&str> = if self.content.is_empty() {
+            vec![""]
+        } else {
+            self.content.lines().collect()
+        };
+
+        if let Some(line) = lines.get(row) {
+            if let Ok(mut global) = GLOBAL_YANK_BUFFER.lock() {
+                *global = (*line).to_string();
+            }
+            Some(format!("Yanked line: {}", line))
+        } else {
+            None
+        }
+    }
+
+    pub fn yank_selection(&mut self) -> Option<String> {
+        if let Some(start) = self.visual_start {
+            let end = self.cursor_position;
+            let selected_text = self.get_text_between(start, end);
+            let status_msg = format!("Yanked selection: {}", selected_text);
+            if let Ok(mut global) = GLOBAL_YANK_BUFFER.lock() {
+                *global = selected_text.clone();
+            }
+            Some(status_msg)
+        } else {
+            None
+        }
+    }
+
+    pub fn yank_word(&mut self) -> Option<String> {
+        let (row, col) = self.cursor_position;
+        let lines: Vec<&str> = self.content.lines().collect();
+
+        if let Some(line) = lines.get(row) {
+            let word = self.get_word_at_position(line, col);
+            let status_msg = format!("Yanked word: {}", word);
+            if let Ok(mut global) = GLOBAL_YANK_BUFFER.lock() {
+                *global = word.clone();
+            }
+            Some(status_msg)
+        } else {
+            None
+        }
+    }
+
+    pub fn yank_to_line_end(&mut self) -> Option<String> {
+        let (row, col) = self.cursor_position;
+        let lines: Vec<&str> = self.content.lines().collect();
+
+        if let Some(line) = lines.get(row) {
+            let remaining = &line[col..];
+            if let Ok(mut global) = GLOBAL_YANK_BUFFER.lock() {
+                *global = remaining.to_string();
+            }
+            Some(format!("Yanked to line end: {}", remaining))
+        } else {
+            None
+        }
+    }
+
+    pub fn yank_to_line_start(&mut self) -> Option<String> {
+        let (row, col) = self.cursor_position;
+        let lines: Vec<&str> = self.content.lines().collect();
+
+        if let Some(line) = lines.get(row) {
+            let before = &line[..col];
+            if let Ok(mut global) = GLOBAL_YANK_BUFFER.lock() {
+                *global = before.to_string();
+            }
+            Some(format!("Yanked to line start: {}", before))
+        } else {
+            None
+        }
+    }
+
+    pub fn paste(&mut self) {
+        let mut source = String::new();
+        if let Ok(global) = GLOBAL_YANK_BUFFER.lock() {
+            source = global.clone();
+        }
+        if source.is_empty() {
+            return;
+        }
+
+        let (row, col) = self.cursor_position;
+        let mut lines: Vec<String> = self.content.lines().map(|s| s.to_string()).collect();
+
+        if lines.is_empty() {
+            lines.push(String::new());
+        }
+
+        if let Some(line) = lines.get_mut(row) {
+            let insert_pos = col.min(line.len());
+            line.insert_str(insert_pos, &source);
+            self.cursor_position = (row, insert_pos + source.len());
+        }
+
+        self.content = lines.join("\n");
+    }
+
+    fn get_text_between(&self, start: (usize, usize), end: (usize, usize)) -> String {
+        let lines: Vec<&str> = self.content.lines().collect();
+        let (start_row, start_col) = start;
+        let (end_row, end_col) = end;
+
+        if start_row == end_row {
+            if let Some(line) = lines.get(start_row) {
+                let start_pos = start_col.min(line.len());
+                let end_pos = end_col.min(line.len());
+                if start_pos < end_pos {
+                    return line[start_pos..end_pos].to_string();
+                }
+            }
+        } else {
+            let mut result = String::new();
+            for row in start_row..=end_row.min(lines.len().saturating_sub(1)) {
+                if let Some(line) = lines.get(row) {
+                    if row == start_row {
+                        result.push_str(&line[start_col.min(line.len())..]);
+                    } else if row == end_row {
+                        result.push_str(&line[..end_col.min(line.len())]);
+                    } else {
+                        result.push_str(line);
+                    }
+                    if row < end_row {
+                        result.push('\n');
+                    }
+                }
+            }
+            return result;
+        }
+        String::new()
+    }
+
+    fn get_word_at_position(&self, line: &str, col: usize) -> String {
+        if col >= line.len() {
+            return String::new();
+        }
+
+        let chars: Vec<char> = line.chars().collect();
+        let mut start = col;
+        let mut end = col;
+
+        while start > 0 && chars[start - 1].is_alphanumeric() {
+            start -= 1;
+        }
+
+        while end < chars.len() && chars[end].is_alphanumeric() {
+            end += 1;
+        }
+
+        if start < end {
+            chars[start..end].iter().collect()
+        } else {
+            String::new()
+        }
     }
 }

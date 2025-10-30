@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::input::{Action, NavigationAction as OldNavigationAction, TreeAction};
-use crate::navigation::types::Pane as OldPane;
+use crate::navigation::types::{NavigationAction, Pane};
 use crate::ui::types::Direction as OldDirection;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -12,33 +12,209 @@ pub struct NavigationInputHandler;
 impl NavigationInputHandler {
     /// Handle a key event using the new navigation system
     pub async fn handle_key(key: KeyCode, modifiers: KeyModifiers, app: &mut App) -> Result<()> {
-        // Quit is now handled by the navigation system mappings
-
-        // Search key is now handled by the navigation system mappings
-
-        // Handle modal input (always available when modal is shown)
-        if app.show_connection_modal {
-            if let crate::app::ActiveBlock::ConnectionModal = app.active_block {
-                Self::handle_connection_modal_input(key, app).await?;
+        // Handle modal input using the modal manager
+        if app.modal_manager.has_modals() {
+            // Allow command mode to be opened even when modal is active
+            if let Some(action) = app
+                .navigation_manager
+                .config()
+                .key_mapping
+                .get_action(key, modifiers)
+            {
+                match action {
+                    NavigationAction::EnterCommandMode => {
+                        app.input_mode = crate::app::InputMode::Command;
+                        app.command_input.clear();
+                        app.command_buffer.clear();
+                        app.update_command_suggestions();
+                        app.modal_manager.push(Box::new(crate::ui::modals::CommandModal::new()));
+                        return Ok(());
+                    }
+                    NavigationAction::Cancel | NavigationAction::Quit => {
+                        app.modal_manager.close_active();
+                        return Ok(());
+                    }
+                    _ => {}
+                }
             }
+
+            // Delegate all other input to the modal
+            if app.input_mode != crate::app::InputMode::Command {
+                // Check common modal keys first
+                let common_result =
+                    crate::ui::modal_manager::utils::handle_common_keys(key, modifiers, app);
+                if let Some(result) = common_result {
+                    if matches!(result, crate::ui::modal_manager::ModalResult::Closed) {
+                        app.modal_manager.close_active();
+                    }
+                    return Ok(());
+                }
+
+                // For all modals, use their own handle_input
+                // Clone key mapping first to avoid borrow conflicts
+                let key_mapping = app.navigation_manager.config().key_mapping.clone();
+                let nav_action = key_mapping.get_action(key, modifiers);
+
+                let result = if let Some(modal) = app.modal_manager.stack.last_mut() {
+                    // Pass the navigation action we already resolved
+                    modal.handle_input(key, modifiers, nav_action)
+                } else {
+                    crate::ui::modal_manager::ModalResult::Continue
+                };
+
+                // Process result with mutable access to app
+                match result {
+                    crate::ui::modal_manager::ModalResult::Closed => {
+                        app.modal_manager.close_active();
+                    }
+                    crate::ui::modal_manager::ModalResult::Action(action) => {
+                        // Handle modal actions
+                        if action.starts_with("apply_theme:") {
+                            let theme_name = action.strip_prefix("apply_theme:").unwrap_or("");
+                            let _ = app.switch_theme(theme_name);
+                            app.modal_manager.close_active();
+                        } else if action.starts_with("create_connection:") {
+                            // TODO: Parse and create connection
+                            let parts: Vec<&str> = action.split(':').collect();
+                            if parts.len() >= 6 {
+                                let name = parts[1];
+                                let host = parts[2];
+                                let port = parts[3];
+                                let _username = parts[4];
+                                let _password = parts[5];
+                                let _database = if parts.len() > 6 { parts[6] } else { "" };
+                                // TODO: Actually create the connection in app
+                                println!("Create connection: {name}@{host}:{port}/{_database}");
+                                app.modal_manager.close_active();
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                return Ok(());
+            }
+        }
+
+        // Handle command mode input
+        if app.input_mode == crate::app::InputMode::Command {
+            Self::handle_command_mode_input(key, modifiers, app).await?;
             return Ok(());
         }
 
         // Handle pane-specific input based on input mode
         match app.active_pane {
-            OldPane::Connections => {
+            Pane::Connections => {
                 Self::handle_connections_input(key, modifiers, app).await?;
             }
-            OldPane::QueryInput => {
+            Pane::QueryInput => {
                 Self::handle_query_input(key, modifiers, app).await?;
             }
-            OldPane::Results => {
+            Pane::Results => {
                 Self::handle_results_input(key, modifiers, app).await?;
             }
-            OldPane::SchemaExplorer => {}
-            OldPane::CommandLine => {}
+            Pane::SchemaExplorer => {}
+            Pane::CommandLine => {}
         }
 
+        Ok(())
+    }
+
+    /// Handle command mode input
+    async fn handle_command_mode_input(
+        key: KeyCode,
+        _modifiers: KeyModifiers,
+        app: &mut App,
+    ) -> Result<()> {
+        match key {
+            KeyCode::Esc => {
+                // Exit command mode
+                app.input_mode = crate::app::InputMode::Normal;
+                app.command_input.clear();
+                app.command_buffer.clear();
+                app.command_suggestions.clear();
+                app.selected_suggestion = None;
+                app.modal_manager.close_active();
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
+            }
+            KeyCode::Enter => {
+                // Build command string first
+                let command = if let Some(suggestion) = app.get_selected_suggestion() {
+                    suggestion.clone()
+                } else {
+                    app.command_input.clone()
+                };
+
+                // Exit command mode and close the command modal BEFORE executing
+                app.input_mode = crate::app::InputMode::Normal;
+                app.command_input.clear();
+                app.command_suggestions.clear();
+                app.selected_suggestion = None;
+                app.modal_manager.close_active();
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
+
+                if !command.is_empty() {
+                    // Sync command to command_buffer for processing
+                    app.command_buffer.clear();
+                    for c in command.chars() {
+                        app.command_buffer.push(c);
+                    }
+
+                    // Process the command
+                    match crate::command::CommandProcessor::process_command(app) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            app.status_message = Some(format!("Unknown command: {}", command));
+                        }
+                        Err(e) => {
+                            let _ = crate::logging::error(&format!(
+                                "Error processing command: {}",
+                                e
+                            ));
+                            app.status_message = Some(format!("Error: {}", e));
+                        }
+                    }
+                }
+            }
+            KeyCode::Backspace => {
+                // Delete last character
+                app.command_input.pop();
+                app.update_command_suggestions();
+            }
+            KeyCode::Up => {
+                // Navigate suggestions
+                app.select_previous_suggestion();
+            }
+            KeyCode::Down => {
+                // Navigate suggestions
+                app.select_next_suggestion();
+            }
+            KeyCode::Tab => {
+                // Auto-complete with selected suggestion
+                if let Some(suggestion) = app.get_selected_suggestion() {
+                    app.command_input = suggestion.clone();
+                    app.update_command_suggestions();
+                }
+            }
+            KeyCode::Char(c) => {
+                // Add character to command input
+                app.command_input.push(c);
+                app.update_command_suggestions();
+
+                // Reset selection to first suggestion when typing
+                if !app.command_suggestions.is_empty() {
+                    app.selected_suggestion = Some(0);
+                }
+            }
+            _ => {}
+        }
         Ok(())
     }
 
@@ -60,6 +236,30 @@ impl NavigationInputHandler {
             }
         }
 
+        // Accumulate numeric repeat count in Normal mode (vim-style): 4j, 10k, etc.
+        if app.input_mode == crate::app::InputMode::Normal
+            && modifiers.is_empty()
+            && matches!(key, KeyCode::Char('0'..='9'))
+        {
+            if let KeyCode::Char(d) = key {
+                match d {
+                    '1'..='9' => {
+                        let new_digit = (d as u8 - b'0') as usize;
+                        app.pending_count = Some(app.pending_count.unwrap_or(0) * 10 + new_digit);
+                        return true; // consume digit
+                    }
+                    '0' => {
+                        if app.pending_count.is_some() {
+                            app.pending_count = Some(app.pending_count.unwrap_or(0) * 10);
+                            return true; // consume digit when building a count
+                        }
+                        // If no pending count, let '0' fall through to mappings (e.g., line start if mapped)
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // Check if this key combination maps to a navigation action
         if let Some(action) = app
             .navigation_manager
@@ -67,7 +267,17 @@ impl NavigationInputHandler {
             .key_mapping
             .get_action(key, modifiers)
         {
-            return Self::handle_navigation_action(action, app);
+            // Apply pending numeric repeat count if present; default to 1
+            let repeat = app.pending_count.take().unwrap_or(1).max(1);
+            let mut handled_any = false;
+            for _ in 0..repeat {
+                let handled = Self::handle_navigation_action(action, app);
+                handled_any = handled_any || handled;
+                if !handled {
+                    break;
+                }
+            }
+            return handled_any;
         }
 
         // Delegate to box manager for box-specific handling
@@ -82,6 +292,14 @@ impl NavigationInputHandler {
         app: &mut App,
     ) -> bool {
         match action {
+            // Open New Connection modal when pressing 'a' in Connections pane
+            crate::navigation::types::NavigationAction::Append => {
+                if app.active_pane == Pane::Connections {
+                    app.show_connection_modal();
+                    return true;
+                }
+                app.navigation_manager.handle_action(action)
+            }
             // Mode switching actions - sync with app input mode
             crate::navigation::types::NavigationAction::EnterInsertMode => {
                 app.input_mode = crate::app::InputMode::Insert;
@@ -100,12 +318,19 @@ impl NavigationInputHandler {
             }
             crate::navigation::types::NavigationAction::EnterCommandMode => {
                 app.input_mode = crate::app::InputMode::Command;
+                app.command_input.clear();
+                app.command_buffer.clear();
+                app.update_command_suggestions();
+                app
+                    .modal_manager
+                    .push(Box::new(crate::ui::modals::CommandModal::new()));
                 app.navigation_manager.handle_action(action)
             }
             // Movement actions - delegate to app functions
             crate::navigation::types::NavigationAction::MoveLeft => {
+                app.last_key_was_y = false;
                 match app.active_pane {
-                    OldPane::QueryInput => {
+                    Pane::QueryInput => {
                         app.handle_navigation(OldNavigationAction::Direction(OldDirection::Left));
                         // Sync vim editor cursor position with app cursor position
                         app.navigation_manager
@@ -113,8 +338,8 @@ impl NavigationInputHandler {
                             .vim_editor_mut()
                             .set_cursor_position(app.cursor_position);
                     }
-                    OldPane::Results => app.move_cursor_in_results(OldDirection::Left),
-                    OldPane::Connections => {
+                    Pane::Results => app.move_cursor_in_results(OldDirection::Left),
+                    Pane::Connections => {
                         // In connections pane, left should collapse tree items
                         if let Err(e) = executor::block_on(
                             app.handle_tree_action(crate::input::TreeAction::Collapse),
@@ -130,8 +355,9 @@ impl NavigationInputHandler {
                 true
             }
             crate::navigation::types::NavigationAction::MoveRight => {
+                app.last_key_was_y = false;
                 match app.active_pane {
-                    OldPane::QueryInput => {
+                    Pane::QueryInput => {
                         app.handle_navigation(OldNavigationAction::Direction(OldDirection::Right));
                         // Sync vim editor cursor position with app cursor position
                         app.navigation_manager
@@ -139,8 +365,8 @@ impl NavigationInputHandler {
                             .vim_editor_mut()
                             .set_cursor_position(app.cursor_position);
                     }
-                    OldPane::Results => app.move_cursor_in_results(OldDirection::Right),
-                    OldPane::Connections => {
+                    Pane::Results => app.move_cursor_in_results(OldDirection::Right),
+                    Pane::Connections => {
                         // In connections pane, right should expand tree items
                         if let Err(e) = executor::block_on(
                             app.handle_tree_action(crate::input::TreeAction::Expand),
@@ -154,10 +380,11 @@ impl NavigationInputHandler {
                 true
             }
             crate::navigation::types::NavigationAction::MoveUp => {
+                app.last_key_was_y = false;
                 match app.active_pane {
-                    OldPane::Results => app.move_cursor_in_results(OldDirection::Up),
-                    OldPane::Connections => app.move_selection_up(),
-                    OldPane::QueryInput => {
+                    Pane::Results => app.move_cursor_in_results(OldDirection::Up),
+                    Pane::Connections => app.move_selection_up(),
+                    Pane::QueryInput => {
                         app.handle_navigation(OldNavigationAction::Direction(OldDirection::Up));
                         // Sync vim editor cursor position with app cursor position
                         app.navigation_manager
@@ -170,10 +397,11 @@ impl NavigationInputHandler {
                 true
             }
             crate::navigation::types::NavigationAction::MoveDown => {
+                app.last_key_was_y = false;
                 match app.active_pane {
-                    OldPane::Results => app.move_cursor_in_results(OldDirection::Down),
-                    OldPane::Connections => app.move_selection_down(),
-                    OldPane::QueryInput => {
+                    Pane::Results => app.move_cursor_in_results(OldDirection::Down),
+                    Pane::Connections => app.move_selection_down(),
+                    Pane::QueryInput => {
                         app.handle_navigation(OldNavigationAction::Direction(OldDirection::Down));
                         // Sync vim editor cursor position with app cursor position
                         app.navigation_manager
@@ -185,105 +413,98 @@ impl NavigationInputHandler {
                 }
                 true
             }
-            // Pane navigation actions
-            crate::navigation::types::NavigationAction::FocusConnections => {
-                app.active_pane = OldPane::Connections;
-                true
-            }
-            crate::navigation::types::NavigationAction::FocusQueryInput => {
-                app.active_pane = OldPane::QueryInput;
-                true
-            }
-            crate::navigation::types::NavigationAction::FocusResults => {
-                app.active_pane = OldPane::Results;
-                true
-            }
-            crate::navigation::types::NavigationAction::FocusSchemaExplorer => {
-                app.active_pane = OldPane::SchemaExplorer;
-                true
-            }
-            crate::navigation::types::NavigationAction::FocusCommandLine => {
-                app.active_pane = OldPane::CommandLine;
-                true
-            }
-            // Directional pane navigation actions
-            crate::navigation::types::NavigationAction::FocusPaneLeft => {
-                // Left takes us to Connections/TreeView, but not from TreeView itself
-                match app.active_pane {
-                    OldPane::Connections => {
-                        // Left from TreeView does nothing
-                        true
-                    }
-                    _ => {
-                        app.active_pane = OldPane::Connections;
-                        true
-                    }
-                }
-            }
-            crate::navigation::types::NavigationAction::FocusPaneRight => {
-                // Right takes us to the next logical pane, but not from Results
-                match app.active_pane {
-                    OldPane::Results => {
-                        // Right from Data does nothing
-                        true
-                    }
-                    OldPane::Connections => {
-                        app.active_pane = OldPane::Results; // TreeView → Data directly
-                        true
-                    }
-                    OldPane::QueryInput => {
-                        app.active_pane = OldPane::Results;
-                        true
-                    }
-                    OldPane::SchemaExplorer => {
-                        app.active_pane = OldPane::CommandLine;
-                        true
-                    }
-                    OldPane::CommandLine => {
-                        app.active_pane = OldPane::Connections; // Wrap around
-                        true
+            // Yank actions use mapped keys (no hardcoded chars). In Results:
+            // - single YankLine: yank cell; - double YankLine (yy): yank row
+            crate::navigation::types::NavigationAction::YankLine => {
+                if app.active_pane == Pane::Results {
+                    if app.last_key_was_y {
+                        // yy: yank entire row
+                        if let Some(selected_tab_index) = app.selected_result_tab_index {
+                            if let Some((_, result, _)) = app.result_tabs.get(selected_tab_index) {
+                                if let Some(row) = result.rows.get(app.cursor_position.1) {
+                                    let row_content = row.join("\t");
+                                    // system clipboard via app API
+                                    let _ = app.copy_row();
+                                    // also set vim yank buffer
+                                    app.navigation_manager
+                                        .box_manager_mut()
+                                        .vim_editor_mut()
+                                        .set_yank_buffer(row_content);
+                                }
+                            }
+                        }
+                        app.last_key_was_y = false;
+                        return true;
+                    } else {
+                        // first 'y': yank cell and arm for yy
+                        let mut cell_content = String::new();
+                        if let Some(selected_tab_index) = app.selected_result_tab_index {
+                            if let Some((_, result, _)) = app.result_tabs.get(selected_tab_index) {
+                                if let Some(row) = result.rows.get(app.cursor_position.1) {
+                                    if let Some(cell) = row.get(app.cursor_position.0) {
+                                        cell_content = cell.clone();
+                                    }
+                                }
+                            }
+                        }
+                        if !cell_content.is_empty() {
+                            let _ = app.copy_cell();
+                            app.navigation_manager
+                                .box_manager_mut()
+                                .vim_editor_mut()
+                                .set_yank_buffer(cell_content);
+                        }
+                        app.last_key_was_y = true;
+                        return true;
                     }
                 }
+                // Non-results: delegate to vim editor default behavior
+                app.last_key_was_y = false;
+                app.navigation_manager.handle_action(action)
             }
-            crate::navigation::types::NavigationAction::FocusPaneUp => {
-                // Up always takes us to Queries
-                app.active_pane = OldPane::QueryInput;
-                true
-            }
-            crate::navigation::types::NavigationAction::FocusPaneDown => {
-                // Down takes us to the next logical pane, but not from Results or TreeView
-                match app.active_pane {
-                    OldPane::Results | OldPane::Connections => {
-                        // Down from Results or TreeView does nothing
-                        true
-                    }
-                    OldPane::QueryInput => {
-                        app.active_pane = OldPane::Results;
-                        true
-                    }
-                    OldPane::SchemaExplorer => {
-                        app.active_pane = OldPane::CommandLine;
-                        true
-                    }
-                    OldPane::CommandLine => {
-                        app.active_pane = OldPane::Connections; // Wrap around
-                        true
-                    }
+            // Pane navigation actions - delegate to navigation manager
+            crate::navigation::types::NavigationAction::FocusConnections
+            | crate::navigation::types::NavigationAction::FocusQueryInput
+            | crate::navigation::types::NavigationAction::FocusResults
+            // | crate::navigation::types::NavigationAction::FocusSchemaExplorer // Removed - not implemented in UI
+            // | crate::navigation::types::NavigationAction::FocusCommandLine // Removed - command mode is handled via InputMode::Command
+            | crate::navigation::types::NavigationAction::FocusPaneLeft
+            | crate::navigation::types::NavigationAction::FocusPaneRight
+            | crate::navigation::types::NavigationAction::FocusPaneUp
+            | crate::navigation::types::NavigationAction::FocusPaneDown
+            | crate::navigation::types::NavigationAction::NextPane
+            | crate::navigation::types::NavigationAction::PreviousPane => {
+                app.last_key_was_y = false;
+                let handled = app.navigation_manager.handle_action(action);
+                if handled {
+                    // Sync app's active_pane with navigation manager's state
+                    app.active_pane = app.navigation_manager.get_active_pane();
                 }
+                handled
             }
             // Special actions
+            crate::navigation::types::NavigationAction::FocusCommandLine => {
+                // Enter command mode instead of navigating to a pane
+                app.input_mode = crate::app::InputMode::Command;
+                app.command_input.clear();
+                app.command_buffer.clear();
+                app.update_command_suggestions();
+                app.navigation_manager.handle_action(crate::navigation::types::NavigationAction::EnterCommandMode);
+                true
+            }
             crate::navigation::types::NavigationAction::Quit => {
                 app.quit();
                 true
             }
             crate::navigation::types::NavigationAction::Search => {
-                if !app.show_connection_modal {
+                if !app.modal_manager.has_modals() {
                     app.focus_where_input();
                 }
                 true
             }
             // Other actions - delegate to navigation manager
             _ => {
+                app.last_key_was_y = false;
                 let handled = app.navigation_manager.handle_action(action);
                 if handled {
                     // Sync app's active_pane with navigation manager's state
@@ -301,191 +522,33 @@ impl NavigationInputHandler {
         // Search key is now handled by the navigation system mappings
 
         // Handle modal input
-        if app.show_connection_modal {
+        if app.modal_manager.has_modals() {
             if let crate::app::ActiveBlock::ConnectionModal = app.active_block {
-                Self::handle_connection_modal_input(key, app).await?;
+                // Handle connection modal input - this will be handled by the modal manager
+                return Ok(());
             }
             return Ok(());
         }
 
         // Handle pane-specific input
         match app.active_pane {
-            OldPane::Connections => {
+            Pane::Connections => {
                 Self::handle_connections_input(key, modifiers, app).await?;
             }
-            OldPane::QueryInput => {
+            Pane::QueryInput => {
                 Self::handle_query_input(key, modifiers, app).await?;
             }
-            OldPane::Results => {
+            Pane::Results => {
                 Self::handle_results_input(key, modifiers, app).await?;
             }
-            OldPane::SchemaExplorer => {
+            Pane::SchemaExplorer => {
                 Self::handle_connections_input(key, modifiers, app).await?;
             }
-            OldPane::CommandLine => {
+            Pane::CommandLine => {
                 Self::handle_query_input(key, modifiers, app).await?;
             }
         }
 
-        Ok(())
-    }
-
-    async fn handle_connection_modal_input(key: KeyCode, app: &mut App) -> Result<()> {
-        match app.input_mode {
-            crate::app::InputMode::Normal => {
-                Self::handle_connection_modal_input_normal_mode(key, app).await
-            }
-            crate::app::InputMode::Insert => {
-                Self::handle_connection_modal_input_insert_mode(key, app).await
-            }
-            _ => Ok(()),
-        }
-    }
-
-    async fn handle_connection_modal_input_normal_mode(key: KeyCode, app: &mut App) -> Result<()> {
-        // First try the navigation system for mapped keys
-        if Self::handle_navigation_key(key, KeyModifiers::empty(), app) {
-            return Ok(());
-        }
-
-        // Fall back to modal-specific handling
-        match key {
-            KeyCode::Esc => {
-                app.toggle_connection_modal();
-            }
-            KeyCode::Down => {
-                app.connection_form.current_field = (app.connection_form.current_field + 1) % 7;
-            }
-            KeyCode::Up => {
-                app.connection_form.current_field = (app.connection_form.current_field + 6) % 7;
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    async fn handle_connection_modal_input_insert_mode(key: KeyCode, app: &mut App) -> Result<()> {
-        match key {
-            KeyCode::Esc => {
-                app.input_mode = crate::app::InputMode::Normal;
-                // Sync navigation manager's vim mode
-                app.navigation_manager
-                    .box_manager_mut()
-                    .vim_editor_mut()
-                    .mode = crate::navigation::types::VimMode::Normal;
-            }
-            KeyCode::Enter => {
-                app.save_connection();
-                app.toggle_connection_modal();
-                app.input_mode = crate::app::InputMode::Normal;
-                // Sync navigation manager's vim mode
-                app.navigation_manager
-                    .box_manager_mut()
-                    .vim_editor_mut()
-                    .mode = crate::navigation::types::VimMode::Normal;
-            }
-            KeyCode::Down | KeyCode::Up => match key {
-                KeyCode::Down => {
-                    app.connection_form.current_field = (app.connection_form.current_field + 1) % 7;
-                }
-                KeyCode::Up => {
-                    app.connection_form.current_field = (app.connection_form.current_field + 6) % 7;
-                }
-                _ => {}
-            },
-            KeyCode::Backspace => match app.connection_form.current_field {
-                0 => {
-                    app.connection_form.name.pop();
-                }
-                1 => {
-                    app.connection_form.host.pop();
-                }
-                2 => {
-                    app.connection_form.port.pop();
-                }
-                3 => {
-                    app.connection_form.username.pop();
-                }
-                4 => {
-                    app.connection_form.password.pop();
-                }
-                5 => {
-                    app.connection_form.database.pop();
-                }
-                6 => {
-                    app.connection_form.ssh_tunnel_name = None;
-                }
-                _ => {}
-            },
-            KeyCode::Left => {
-                if app.connection_form.current_field == 6 {
-                    let names: Vec<String> = app
-                        .config
-                        .ssh_tunnels
-                        .iter()
-                        .map(|t| t.name.clone())
-                        .collect();
-                    if names.is_empty() {
-                        app.connection_form.ssh_tunnel_name = None;
-                    } else {
-                        let current_idx = app
-                            .connection_form
-                            .ssh_tunnel_name
-                            .as_ref()
-                            .and_then(|n| names.iter().position(|x| x == n))
-                            .unwrap_or(0);
-                        let new_idx = if current_idx == 0 {
-                            None
-                        } else {
-                            Some(current_idx - 1)
-                        };
-                        app.connection_form.ssh_tunnel_name = new_idx.map(|i| names[i].clone());
-                    }
-                }
-            }
-            KeyCode::Right => {
-                if app.connection_form.current_field == 6 {
-                    let names: Vec<String> = app
-                        .config
-                        .ssh_tunnels
-                        .iter()
-                        .map(|t| t.name.clone())
-                        .collect();
-                    if names.is_empty() {
-                        app.connection_form.ssh_tunnel_name = None;
-                    } else {
-                        let maybe_idx = app
-                            .connection_form
-                            .ssh_tunnel_name
-                            .as_ref()
-                            .and_then(|n| names.iter().position(|x| x == n));
-                        let new_idx = match maybe_idx {
-                            None => Some(0),
-                            Some(i) if i + 1 < names.len() => Some(i + 1),
-                            _ => None,
-                        };
-                        app.connection_form.ssh_tunnel_name = new_idx.map(|i| names[i].clone());
-                    }
-                }
-            }
-            KeyCode::Char(c) => {
-                if app.connection_form.current_field == 2 {
-                    if c.is_ascii_digit() {
-                        app.connection_form.port.push(c);
-                    }
-                } else if app.connection_form.current_field != 6 {
-                    match app.connection_form.current_field {
-                        0 => app.connection_form.name.push(c),
-                        1 => app.connection_form.host.push(c),
-                        3 => app.connection_form.username.push(c),
-                        4 => app.connection_form.password.push(c),
-                        5 => app.connection_form.database.push(c),
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        }
         Ok(())
     }
 
@@ -601,7 +664,7 @@ impl NavigationInputHandler {
                                 .unwrap_or_default(),
                             ssh_tunnel_name: connection.ssh_tunnel_name.clone(),
                         };
-                        app.show_connection_modal = true;
+                        app.show_connection_modal();
                         app.active_block = crate::app::ActiveBlock::ConnectionModal;
                         app.input_mode = crate::app::InputMode::Normal;
                         // Sync navigation manager's vim mode
@@ -620,7 +683,7 @@ impl NavigationInputHandler {
             match key {
                 // 'q' is now handled by the navigation system mappings
                 KeyCode::Char('a') if modifiers.is_empty() => {
-                    app.show_connection_modal = true;
+                    app.show_connection_modal();
                     app.active_block = crate::app::ActiveBlock::ConnectionModal;
                     app.input_mode = crate::app::InputMode::Normal;
                     // Sync navigation manager's vim mode
@@ -640,6 +703,41 @@ impl NavigationInputHandler {
         modifiers: KeyModifiers,
         app: &mut App,
     ) -> Result<()> {
+        // Use the new QueryInputPane for input handling
+        let nav_action = app
+            .navigation_manager
+            .config()
+            .key_mapping
+            .get_action(key, modifiers);
+
+        if app
+            .query_input_pane
+            .handle_input(key, modifiers, nav_action)
+        {
+            return Ok(());
+        }
+
+        // Check if we need to handle Enter key for query execution
+        if key == KeyCode::Enter {
+            let current_mode = app.query_input_pane.current_vim_mode();
+            if current_mode == crate::navigation::types::VimMode::Insert {
+                // Sync content from QueryInputPane to query state before executing
+                let where_content = app.query_input_pane.get_where_content();
+                let order_by_content = app.query_input_pane.get_order_by_content();
+                if let Some(state) = app.current_query_state_mut() {
+                    state.where_clause = where_content;
+                    state.order_by_clause = order_by_content;
+                }
+                if let Err(e) = app.refresh_results().await {
+                    let _ = crate::logging::error(&format!("Error refreshing results: {}", e));
+                }
+                app.input_mode = crate::app::InputMode::Normal;
+                app.query_input_pane.exit_insert_mode();
+                return Ok(());
+            }
+        }
+
+        // Fallback to old system if pane didn't handle it
         match app.input_mode {
             crate::app::InputMode::Normal => {
                 // In normal mode, try the new navigation system first
@@ -679,7 +777,7 @@ impl NavigationInputHandler {
             match action {
                 Action::Navigation(OldNavigationAction::FocusPane(pane)) => {
                     app.active_pane = pane;
-                    if pane == OldPane::QueryInput {
+                    if pane == Pane::QueryInput {
                         let len = app.get_current_field_length();
                         app.cursor_position.1 = app.cursor_position.1.min(len);
                     }
@@ -697,42 +795,64 @@ impl NavigationInputHandler {
 
     async fn handle_query_input_insert_mode(
         key: KeyCode,
-        _modifiers: KeyModifiers,
+        modifiers: KeyModifiers,
         app: &mut App,
     ) -> Result<()> {
         match key {
             KeyCode::Esc => {
                 app.input_mode = crate::app::InputMode::Normal;
-                // Sync navigation manager's vim mode
                 app.navigation_manager
                     .box_manager_mut()
                     .vim_editor_mut()
                     .mode = crate::navigation::types::VimMode::Normal;
+                // Sync content back to query state
+                app.sync_vim_editor_to_query_state();
             }
             KeyCode::Enter => {
+                // Sync content from QueryInputPane to query state before executing
+                let where_content = app.query_input_pane.get_where_content();
+                let order_by_content = app.query_input_pane.get_order_by_content();
+                if let Some(state) = app.current_query_state_mut() {
+                    state.where_clause = where_content;
+                    state.order_by_clause = order_by_content;
+                }
                 if let Err(e) = app.refresh_results().await {
                     let _ = crate::logging::error(&format!("Error refreshing results: {}", e));
                 }
                 app.input_mode = crate::app::InputMode::Normal;
+                // Exit insert mode for all fields in the pane
+                app.query_input_pane.exit_insert_mode();
                 // Sync navigation manager's vim mode
                 app.navigation_manager
                     .box_manager_mut()
                     .vim_editor_mut()
                     .mode = crate::navigation::types::VimMode::Normal;
             }
-            KeyCode::Char(c) => app.insert_char(c),
-            KeyCode::Backspace => app.delete_char(),
-            KeyCode::Up => app.handle_navigation(OldNavigationAction::Direction(OldDirection::Up)),
-            KeyCode::Down => {
-                app.handle_navigation(OldNavigationAction::Direction(OldDirection::Down))
+            KeyCode::Char('y') => {
+                // Handle yank word in insert mode
+                let vim_editor = app.navigation_manager.box_manager_mut().vim_editor_mut();
+                if let Some(status) = vim_editor.yank_word() {
+                    app.status_message = Some(format!("DEBUG: {}", status));
+                }
+                // Sync cursor position back to app
+                app.cursor_position = vim_editor.cursor_position();
             }
-            KeyCode::Left => {
-                app.handle_navigation(OldNavigationAction::Direction(OldDirection::Left))
+            KeyCode::Char('Y') => {
+                // Handle yank line in insert mode
+                let vim_editor = app.navigation_manager.box_manager_mut().vim_editor_mut();
+                if let Some(status) = vim_editor.yank_line() {
+                    app.status_message = Some(format!("DEBUG: {}", status));
+                }
+                // Sync cursor position back to app
+                app.cursor_position = vim_editor.cursor_position();
             }
-            KeyCode::Right => {
-                app.handle_navigation(OldNavigationAction::Direction(OldDirection::Right))
+            _ => {
+                // Let VimEditor handle all other keys
+                let vim_editor = app.navigation_manager.box_manager_mut().vim_editor_mut();
+                vim_editor.handle_key(key, modifiers);
+                // Sync cursor position back to app
+                app.cursor_position = vim_editor.cursor_position();
             }
-            _ => {}
         }
         Ok(())
     }
@@ -760,133 +880,12 @@ impl NavigationInputHandler {
         modifiers: KeyModifiers,
         app: &mut App,
     ) -> Result<()> {
-        if app.show_deletion_modal {
-            match key {
-                KeyCode::Esc => {
-                    app.show_deletion_modal = false;
-                    if let Some((_, _, state)) = app
-                        .selected_result_tab_index
-                        .and_then(|idx| app.result_tabs.get_mut(idx))
-                    {
-                        state.rows_marked_for_deletion.clear();
-                    }
-                }
-                KeyCode::Enter => {
-                    if let Err(e) = app.confirm_deletions().await {
-                        let _ =
-                            crate::logging::error(&format!("Error confirming deletions: {}", e));
-                    }
-                    app.show_deletion_modal = false;
-                }
-                _ => {}
-            }
-            return Ok(());
-        }
-
-        if key == KeyCode::Esc {
-            app.command_buffer.clear();
-            return Ok(());
-        }
-
-        // Handle key input with command buffer (non-exclusive):
-        if let KeyCode::Char(c) = key {
-            if modifiers.is_empty() {
-                app.command_buffer.push(c);
-                match crate::command::CommandProcessor::process_command(app) {
-                    Ok(true) => {
-                        return Ok(());
-                    }
-                    Ok(false) => {
-                        // fall through to action handling
-                    }
-                    Err(e) => {
-                        let _ = crate::logging::error(&format!("Error processing command: {}", e));
-                        app.command_buffer.clear();
-                    }
-                }
-            } else {
-                app.command_buffer.clear();
-            }
-        } else {
-            app.command_buffer.clear();
-        }
-
+        // Legacy keymap support for copy/paste in results
         if let Some(action) = app.config.keymap.get_action(key, modifiers) {
             match action {
-                Action::Navigation(nav_action) => match nav_action {
-                    OldNavigationAction::Direction(direction) => {
-                        app.move_cursor_in_results(direction);
-                    }
-                    OldNavigationAction::FocusPane(pane) => {
-                        app.active_pane = pane;
-                    }
-                    _ => {
-                        app.handle_navigation(nav_action);
-                    }
-                },
-                Action::FollowForeignKey => {
-                    if let Err(e) = app.follow_foreign_key().await {
-                        let _ =
-                            crate::logging::error(&format!("Error following foreign key: {}", e));
-                    }
-                }
-                Action::FirstPage => {
-                    if let Err(e) = app.first_page().await {
-                        let _ = crate::logging::error(&format!("Error going to first page: {}", e));
-                    }
-                }
-                Action::PreviousPage => {
-                    if let Err(e) = app.previous_page().await {
-                        let _ =
-                            crate::logging::error(&format!("Error going to previous page: {}", e));
-                    }
-                }
-                Action::NextPage => {
-                    if let Err(e) = app.next_page().await {
-                        let _ = crate::logging::error(&format!("Error going to next page: {}", e));
-                    }
-                }
-                Action::LastPage => {
-                    if let Err(e) = app.last_page().await {
-                        let _ = crate::logging::error(&format!("Error going to last page: {}", e));
-                    }
-                }
-                Action::Sort => {
-                    if let Err(e) = app.sort_results().await {
-                        let _ = crate::logging::error(&format!("Error sorting results: {}", e));
-                    }
-                }
-                Action::Delete => {
-                    app.toggle_row_deletion_mark();
-                }
-                Action::Confirm => {
-                    if app.show_deletion_modal {
-                        match app.confirm_deletions().await {
-                            Ok(_) => {
-                                app.show_deletion_modal = false;
-                            }
-                            Err(e) => {
-                                let _ = crate::logging::error(&format!(
-                                    "Error confirming deletions: {}",
-                                    e
-                                ));
-                            }
-                        }
-                    } else if app
-                        .selected_result_tab_index
-                        .and_then(|idx| app.result_tabs.get(idx))
-                        .map(|(_, _, state)| !state.rows_marked_for_deletion.is_empty())
-                        .unwrap_or(false)
-                    {
-                        app.show_deletion_modal = true;
-                    }
-                }
-                Action::Cancel => {
-                    if app.show_deletion_modal {
-                        app.show_deletion_modal = false;
-                        app.clear_deletion_marks();
-                        app.status_message = Some("Deletion cancelled".to_string());
-                    }
+                Action::CopyCell => {
+                    let _ = app.copy_cell();
+                    return Ok(());
                 }
                 _ => {}
             }

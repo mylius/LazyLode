@@ -5,14 +5,18 @@ use crate::logging;
 use crate::navigation::types::Pane;
 use crate::navigation::NavigationManager;
 use crate::ui::layout::QueryField;
+use crate::ui::modal_manager::ModalManager;
+use crate::ui::panes::query_input::QueryInputPane;
+use crate::ui::panes::results::ResultsPane;
+use crate::ui::panes::sidebar::SidebarPane;
 use crate::ui::types::Direction;
 use clipboard::{ClipboardContext, ClipboardProvider};
 
 use crate::config::Config;
 use crate::database::core::ForeignKeyTarget;
 use crate::database::{
-    ConnectionConfig, ConnectionManager, ConnectionStatus, DatabaseType, PrefetchedDatabase,
-    PrefetchedSchema, PrefetchedStructure, QueryParams, QueryResult,
+    ConnectionConfig, ConnectionManager, ConnectionStatus, DatabaseType, PrefetchedStructure,
+    QueryParams, QueryResult,
 };
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
@@ -125,7 +129,7 @@ pub struct SchemaTreeItem {
 pub struct App {
     pub should_quit: bool,
     pub active_block: ActiveBlock,
-    pub show_connection_modal: bool,
+    pub modal_manager: ModalManager,
     pub saved_connections: Vec<ConnectionConfig>,
     pub selected_connection_idx: Option<usize>,
     pub connection_statuses: HashMap<String, ConnectionStatus>,
@@ -134,13 +138,13 @@ pub struct App {
     pub result_tabs: Vec<(String, QueryResult, QueryState)>,
     pub config: Config,
     pub status_message: Option<String>,
+    pub status_message_timestamp: Option<std::time::Instant>,
     pub command_input: String,
     pub cursor_position: (usize, usize),
     pub active_pane: Pane,
     pub connection_tree: Vec<ConnectionTreeItem>,
     pub last_table_info: Option<(String, String, String)>,
     pub selected_result_tab_index: Option<usize>,
-    pub show_deletion_modal: bool,
     pub connection_manager: ConnectionManager,
     pub prefetched_structures: HashMap<String, PrefetchedStructure>,
     pub prefetch_receiver: Option<mpsc::UnboundedReceiver<PrefetchResult>>,
@@ -152,7 +156,14 @@ pub struct App {
     pub navigation_manager: NavigationManager,
     pub command_suggestions: Vec<String>,
     pub selected_suggestion: Option<usize>,
+    pub suggestions_scroll_offset: usize,
     pub query: String,
+    pub query_input_pane: QueryInputPane,
+    pub sidebar_pane: SidebarPane,
+    pub results_pane: ResultsPane,
+    /// Pending numeric repeat count for vim-style actions in Normal mode
+    pub pending_count: Option<usize>,
+    pub last_key_was_y: bool,
 }
 
 impl App {
@@ -163,7 +174,7 @@ impl App {
         let mut app = Self {
             should_quit: false,
             active_block: ActiveBlock::Connections,
-            show_connection_modal: false,
+            modal_manager: ModalManager::new(),
             saved_connections: config.connections.clone(),
             selected_connection_idx: None,
             connection_statuses: config
@@ -176,13 +187,13 @@ impl App {
             result_tabs: Vec::new(),
             config,
             status_message: None,
+            status_message_timestamp: None,
             command_input: String::new(),
             cursor_position: (0, 0),
             active_pane: Pane::default(),
             connection_tree: Vec::new(),
             last_table_info: None,
             selected_result_tab_index: None,
-            show_deletion_modal: false,
             connection_manager: ConnectionManager::new(),
             prefetched_structures: HashMap::new(),
             prefetch_receiver: None,
@@ -193,7 +204,13 @@ impl App {
             navigation_manager: NavigationManager::new(navigation_config),
             command_suggestions: Vec::new(),
             selected_suggestion: None,
+            suggestions_scroll_offset: 0,
             query: String::new(),
+            query_input_pane: QueryInputPane::new(),
+            sidebar_pane: SidebarPane::new(),
+            results_pane: ResultsPane::new(),
+            pending_count: None,
+            last_key_was_y: false,
         };
 
         app.load_connections();
@@ -220,7 +237,7 @@ impl App {
         let mut app = Self {
             should_quit: false,
             active_block: ActiveBlock::Connections,
-            show_connection_modal: false,
+            modal_manager: ModalManager::new(),
             saved_connections: config.connections.clone(),
             selected_connection_idx: None,
             connection_statuses: config
@@ -234,13 +251,13 @@ impl App {
             result_tabs: Vec::new(),
             config,
             status_message: None,
+            status_message_timestamp: None,
             command_input: String::new(),
             cursor_position: (0, 0),
             active_pane: Pane::default(),
             connection_tree: Vec::new(),
             last_table_info: None,
             selected_result_tab_index: None,
-            show_deletion_modal: false,
             connection_manager: ConnectionManager::new(),
             prefetched_structures: HashMap::new(),
             prefetch_receiver: None,
@@ -250,7 +267,13 @@ impl App {
             awaiting_replace: false,
             command_suggestions: Vec::new(),
             selected_suggestion: None,
+            suggestions_scroll_offset: 0,
             navigation_manager: NavigationManager::new(navigation_config),
+            query_input_pane: QueryInputPane::new(),
+            sidebar_pane: SidebarPane::new(),
+            results_pane: ResultsPane::new(),
+            pending_count: None,
+            last_key_was_y: false,
         };
 
         app.load_connections();
@@ -541,14 +564,56 @@ impl App {
         self.should_quit = true;
     }
 
+    /// Toggles the visibility of the themes modal.
+    pub fn toggle_themes_modal(&mut self) {
+        use crate::ui::modals::ThemesModal;
+
+        // If themes modal is already open, bring it to the front
+        if self.modal_manager.focus_modal_with_title("Themes") {
+            return;
+        }
+
+        // Otherwise, open it (allowing modal stacking)
+        let current_theme = self.config.theme_name.clone();
+        let themes_modal = Box::new(ThemesModal::new(current_theme));
+        self.modal_manager.push(themes_modal);
+    }
+
     /// Toggles the visibility of the connection modal.
     pub fn toggle_connection_modal(&mut self) {
-        self.show_connection_modal = !self.show_connection_modal;
-        if self.show_connection_modal {
-            self.active_block = ActiveBlock::ConnectionModal;
-        } else {
-            self.input_mode = InputMode::Normal;
+        use crate::ui::modals::ConnectionModal;
+
+        // If connection modal is already open, bring it to the front
+        if self.modal_manager.focus_modal_with_title("New Connection") {
+            return;
         }
+
+        // Otherwise, open it (allowing modal stacking)
+        let connection_modal = Box::new(ConnectionModal::new());
+        self.modal_manager.push(connection_modal);
+        self.active_block = ActiveBlock::ConnectionModal;
+    }
+
+    /// Close the active modal
+    pub fn close_active_modal(&mut self) {
+        self.modal_manager.close_active();
+        self.input_mode = InputMode::Normal;
+    }
+
+    /// Show themes modal
+    pub fn show_themes_modal(&mut self) {
+        use crate::ui::modals::ThemesModal;
+        let current_theme = self.config.theme_name.clone();
+        let themes_modal = Box::new(ThemesModal::new(current_theme));
+        self.modal_manager.push(themes_modal);
+    }
+
+    /// Show connection modal
+    pub fn show_connection_modal(&mut self) {
+        use crate::ui::modals::ConnectionModal;
+        let connection_modal = Box::new(ConnectionModal::new());
+        self.modal_manager.push(connection_modal);
+        self.active_block = ActiveBlock::ConnectionModal;
     }
 
     /// Saves a new connection based on the data in `connection_form`.
@@ -570,7 +635,7 @@ impl App {
         self.saved_connections.push(new_connection.clone());
         self.config
             .save_connections(&self.saved_connections)
-            .expect("Failed to save connections");
+            .unwrap_or_else(|err| eprintln!("Failed to save connections: {}", err));
 
         // Add to connection tree
         self.connection_tree.push(ConnectionTreeItem {
@@ -1196,7 +1261,7 @@ impl App {
             self.saved_connections[index] = updated_connection.clone();
             self.config
                 .save_connections(&self.saved_connections)
-                .expect("Failed to save connections");
+                .unwrap_or_else(|err| eprintln!("Failed to save connections: {}", err));
 
             // Update the connection tree
             if let Some(tree_item) = self.connection_tree.get_mut(index) {
@@ -1212,7 +1277,7 @@ impl App {
             self.saved_connections.remove(index);
             self.config
                 .save_connections(&self.saved_connections)
-                .expect("Failed to save connections");
+                .unwrap_or_else(|err| eprintln!("Failed to save connections: {}", err));
 
             // Remove from connection tree
             self.connection_tree.remove(index);
@@ -1463,6 +1528,51 @@ impl App {
                 _ => {}
             }
             self.cursor_position.1 = 0;
+        }
+    }
+
+    /// Sync VimEditor content back to query state
+    pub fn sync_vim_editor_to_query_state(&mut self) {
+        let content = self
+            .navigation_manager
+            .box_manager()
+            .vim_editor()
+            .content()
+            .to_string();
+        let field_idx = self.cursor_position.0;
+
+        if let Some(state) = self.current_query_state_mut() {
+            match field_idx {
+                0 => state.where_clause = content,
+                1 => state.order_by_clause = content,
+                _ => {}
+            }
+        }
+    }
+
+    /// Get word at position in text
+    fn get_word_at_position(&self, text: &str, pos: usize) -> String {
+        if pos >= text.len() {
+            return String::new();
+        }
+
+        let chars: Vec<char> = text.chars().collect();
+        let mut start = pos;
+        let mut end = pos;
+
+        // Find word boundaries
+        while start > 0 && chars[start - 1].is_alphanumeric() {
+            start -= 1;
+        }
+
+        while end < chars.len() && chars[end].is_alphanumeric() {
+            end += 1;
+        }
+
+        if start < end {
+            chars[start..end].iter().collect()
+        } else {
+            String::new()
         }
     }
 
@@ -1891,21 +2001,7 @@ impl App {
 
     /// Lists available themes
     pub fn list_themes(&mut self) -> anyhow::Result<()> {
-        match crate::config::Config::list_themes() {
-            Ok(themes) => {
-                if themes.is_empty() {
-                    self.status_message = Some("No themes available".to_string());
-                } else {
-                    let theme_list = themes.join(", ");
-                    self.status_message = Some(format!("Available themes: {}", theme_list));
-                }
-            }
-            Err(e) => {
-                let error_msg = format!("Failed to list themes: {}", e);
-                logging::error(&error_msg)?;
-                self.status_message = Some(error_msg);
-            }
-        }
+        self.toggle_themes_modal();
         Ok(())
     }
 
@@ -1927,43 +2023,51 @@ impl App {
 
     /// Updates command suggestions based on current input
     pub fn update_command_suggestions(&mut self) {
-        let input = self.command_input.to_lowercase();
-        let mut suggestions = Vec::new();
-
-        if input.is_empty() || "themes".starts_with(&input) {
-            suggestions.push("themes".to_string());
+        // Only show suggestions if there's meaningful input (more than just the command prompt)
+        if !self.command_input.is_empty() {
+            self.command_suggestions =
+                crate::command::CommandProcessor::get_suggestions(&self.command_input);
+        } else {
+            self.command_suggestions.clear();
         }
 
-        if input.is_empty() || "theme".starts_with(&input) {
-            suggestions.push("theme".to_string());
-        }
-
-        if input.starts_with("theme ") {
-            let theme_query = input.strip_prefix("theme ").unwrap_or("");
-            if let Ok(themes) = crate::config::Config::list_themes() {
-                for theme in themes {
-                    if theme_query.is_empty() || theme.to_lowercase().contains(theme_query) {
-                        suggestions.push(format!("theme {}", theme));
-                    }
-                }
-            }
-        }
-
-        self.command_suggestions = suggestions;
         self.selected_suggestion = if self.command_suggestions.is_empty() {
             None
         } else {
             Some(0)
         };
+        self.suggestions_scroll_offset = 0; // Reset scroll when suggestions change
     }
 
     /// Moves suggestion selection up
     pub fn select_previous_suggestion(&mut self) {
         if let Some(selected) = self.selected_suggestion {
-            if selected > 0 {
-                self.selected_suggestion = Some(selected - 1);
+            let new_selection = if selected > 0 {
+                selected - 1
             } else {
-                self.selected_suggestion = Some(self.command_suggestions.len() - 1);
+                self.command_suggestions.len() - 1
+            };
+            self.selected_suggestion = Some(new_selection);
+
+            // Update scroll offset to keep selected item visible
+            self.update_scroll_offset();
+
+            // Update command input with preview
+            if let Some(suggestion) = self.command_suggestions.get(new_selection) {
+                self.command_input = suggestion.clone();
+
+                // Preview theme changes for theme suggestions
+                if suggestion.starts_with("theme ") || suggestion.starts_with("switchTheme ") {
+                    let theme_name = if suggestion.starts_with("theme ") {
+                        suggestion.strip_prefix("theme ").unwrap_or("")
+                    } else {
+                        suggestion.strip_prefix("switchTheme ").unwrap_or("")
+                    };
+                    if !theme_name.is_empty() {
+                        let theme_name = theme_name.to_string(); // Clone to avoid borrow issues
+                        let _ = self.switch_theme(&theme_name);
+                    }
+                }
             }
         }
     }
@@ -1971,10 +2075,32 @@ impl App {
     /// Moves suggestion selection down
     pub fn select_next_suggestion(&mut self) {
         if let Some(selected) = self.selected_suggestion {
-            if selected + 1 < self.command_suggestions.len() {
-                self.selected_suggestion = Some(selected + 1);
+            let new_selection = if selected + 1 < self.command_suggestions.len() {
+                selected + 1
             } else {
-                self.selected_suggestion = Some(0);
+                0
+            };
+            self.selected_suggestion = Some(new_selection);
+
+            // Update scroll offset to keep selected item visible
+            self.update_scroll_offset();
+
+            // Update command input with preview
+            if let Some(suggestion) = self.command_suggestions.get(new_selection) {
+                self.command_input = suggestion.clone();
+
+                // Preview theme changes for theme suggestions
+                if suggestion.starts_with("theme ") || suggestion.starts_with("switchTheme ") {
+                    let theme_name = if suggestion.starts_with("theme ") {
+                        suggestion.strip_prefix("theme ").unwrap_or("")
+                    } else {
+                        suggestion.strip_prefix("switchTheme ").unwrap_or("")
+                    };
+                    if !theme_name.is_empty() {
+                        let theme_name = theme_name.to_string(); // Clone to avoid borrow issues
+                        let _ = self.switch_theme(&theme_name);
+                    }
+                }
             }
         }
     }
@@ -1983,6 +2109,29 @@ impl App {
     pub fn get_selected_suggestion(&self) -> Option<&String> {
         self.selected_suggestion
             .and_then(|idx| self.command_suggestions.get(idx))
+    }
+
+    /// Updates scroll offset to keep selected item visible
+    fn update_scroll_offset(&mut self) {
+        const VISIBLE_ITEMS: usize = 6; // Max visible items in dropdown
+
+        if let Some(selected) = self.selected_suggestion {
+            let total_items = self.command_suggestions.len();
+
+            if total_items <= VISIBLE_ITEMS {
+                // All items fit, no scrolling needed
+                self.suggestions_scroll_offset = 0;
+            } else {
+                // Calculate scroll offset to keep selected item visible
+                if selected < self.suggestions_scroll_offset {
+                    // Selected item is above visible area, scroll up
+                    self.suggestions_scroll_offset = selected;
+                } else if selected >= self.suggestions_scroll_offset + VISIBLE_ITEMS {
+                    // Selected item is below visible area, scroll down
+                    self.suggestions_scroll_offset = selected - VISIBLE_ITEMS + 1;
+                }
+            }
+        }
     }
 
     pub fn get_current_theme_name(&self) -> &str {
@@ -2130,5 +2279,21 @@ impl App {
 
     pub fn tree_item_at(&self, visual_index: usize) -> Option<TreeItem> {
         self.get_tree_item_at_visual_index(visual_index)
+    }
+
+    /// Sets a status message with timestamp
+    pub fn set_status_message(&mut self, message: String) {
+        self.status_message = Some(message);
+        self.status_message_timestamp = Some(std::time::Instant::now());
+    }
+
+    /// Clears expired status messages (older than 3 seconds)
+    pub fn clear_expired_status_message(&mut self) {
+        if let Some(timestamp) = self.status_message_timestamp {
+            if timestamp.elapsed().as_secs() >= 3 {
+                self.status_message = None;
+                self.status_message_timestamp = None;
+            }
+        }
     }
 }

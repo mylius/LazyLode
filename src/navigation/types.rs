@@ -182,24 +182,6 @@ impl Default for KeyMapping {
 
         // Directional pane navigation - LazyVim style with Ctrl+h/j/k/l
         mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('h')),
-            NavigationAction::FocusPaneLeft,
-        );
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('l')),
-            NavigationAction::FocusPaneRight,
-        );
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('k')),
-            NavigationAction::FocusPaneUp,
-        );
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('j')),
-            NavigationAction::FocusPaneDown,
-        );
-
-        // Alternative directional pane navigation with Shift+h/j/k/l
-        mapping.add_mapping(
             KeyCombination::with_shift(KeyCode::Char('H')),
             NavigationAction::FocusPaneLeft,
         );
@@ -214,24 +196,6 @@ impl Default for KeyMapping {
         mapping.add_mapping(
             KeyCombination::with_shift(KeyCode::Char('J')),
             NavigationAction::FocusPaneDown,
-        );
-
-        // Box navigation - LazyVim style with Ctrl+letter
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('t')),
-            NavigationAction::FocusTextInput,
-        );
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('d')),
-            NavigationAction::FocusDataTable,
-        );
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('v')),
-            NavigationAction::FocusTreeView,
-        );
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('b')),
-            NavigationAction::FocusListView,
         );
 
         // Movement
@@ -275,7 +239,7 @@ impl Default for KeyMapping {
         );
         mapping.add_mapping(
             KeyCombination::simple(KeyCode::Char('a')),
-            NavigationAction::EnterInsertMode,
+            NavigationAction::Append,
         );
         mapping.add_mapping(
             KeyCombination::simple(KeyCode::Char('v')),
@@ -316,6 +280,24 @@ impl Default for KeyMapping {
         mapping.add_mapping(
             KeyCombination::simple(KeyCode::Char('r')),
             NavigationAction::ReplaceChar,
+        );
+
+        // Yank operations - these will be handled by the vim editor based on context
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('y')),
+            NavigationAction::YankLine,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('Y')),
+            NavigationAction::YankLine,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('p')),
+            NavigationAction::Paste,
+        );
+        mapping.add_mapping(
+            KeyCombination::simple(KeyCode::Char('P')),
+            NavigationAction::Paste,
         );
 
         // Copy/paste
@@ -463,6 +445,7 @@ pub enum NavigationAction {
 
     // Editing modes
     EnterInsertMode,
+    Append,
     EnterVisualMode,
     EnterCommandMode,
     EnterNormalMode,
@@ -478,6 +461,13 @@ pub enum NavigationAction {
     ReplaceChar,
     Undo,
     Redo,
+
+    // Yank actions
+    YankLine,
+    YankWord,
+    YankToLineEnd,
+    YankToLineStart,
+    YankSelection,
 
     // Special actions
     Quit,

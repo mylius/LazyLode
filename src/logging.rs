@@ -31,8 +31,11 @@ lazy_static! {
 }
 
 fn get_log_dir() -> PathBuf {
-    let home = dirs::home_dir().expect("Could not find HOME directory");
-    home.join(".config").join("lazylode").join("logs")
+    if let Some(home) = dirs::home_dir() {
+        return home.join(".config").join("lazylode").join("logs");
+    }
+    let base = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    base.join(".config").join("lazylode").join("logs")
 }
 
 pub fn init_logger() -> Result<()> {
@@ -49,12 +52,18 @@ pub fn init_logger() -> Result<()> {
         .open(log_file_path)
         .context("Failed to create log file")?;
 
-    *LOG_FILE.lock().unwrap() = Some(file);
+    let mut guard = LOG_FILE
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Failed to lock log file mutex"))?;
+    *guard = Some(file);
     Ok(())
 }
 
 pub fn log(level: LogLevel, message: &str) -> Result<()> {
-    if let Some(file) = &mut *LOG_FILE.lock().unwrap() {
+    let mut guard = LOG_FILE
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Failed to lock log file mutex"))?;
+    if let Some(file) = &mut *guard {
         let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
         let log_entry = format!("[{}] {} - {}\n", timestamp, level.as_str(), message);
         file.write_all(log_entry.as_bytes())?;

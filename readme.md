@@ -42,9 +42,12 @@ lazylode
 ### Basic Navigation
 
 - Arrow keys or hjkl: Navigate
-- Shift+c: Focus connections pane
-- Shift+q: Focus query pane
-- Shift+d: Focus results pane
+- Shift+T: Focus connection tree pane
+- Shift+F: Focus query input pane
+- Shift+R: Focus results pane
+- Shift+S: Focus schema explorer
+- ':' Open command line, Esc to cancel
+- '/': Focus WHERE input (search)
 - Enter: Expand/select item
 - Left/Right: Collapse/expand tree items
 
@@ -52,8 +55,9 @@ lazylode
 
 - y: yank cell
 - yy: yank row
+- p/P: paste
 
- Numeric modifiers (e.g. `3j` for down 3 rows) are also enabled.
+Numeric modifiers (e.g. `3j` for down 3 rows) are enabled in Normal mode.
 
 ### Connection Management
 
@@ -78,8 +82,8 @@ lazylode
 - s: Sort by column
 - g: First page
 - G: Last page
-- n: Next page
-- p: Previous page
+- .: Next page (default)
+- ,: Previous page (default)
 
 ### Foreign Key Jump
 

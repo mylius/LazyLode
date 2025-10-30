@@ -71,8 +71,16 @@ impl LayoutContext {
         }
     }
 
+    pub fn with_app(root: Rect, _app: &App) -> Self {
+        Self::new(root)
+    }
+
     pub fn locate(&self, column: u16, row: u16, app: &App) -> Hit {
         let position = Position::new(column, row);
+
+        if app.modal_manager.active_blocks_interaction() {
+            return Hit::None;
+        }
 
         if let Some(hit) = self
             .sidebar_inner()
@@ -253,7 +261,9 @@ impl LayoutContext {
     }
 
     fn hit_tabs(&self, position: Position, app: &App) -> Hit {
-        let area = self.tabs_area(app).unwrap();
+        let Some(area) = self.tabs_area(app) else {
+            return Hit::None;
+        };
         let tab_count = app.result_tabs.len();
         if tab_count == 0 {
             return Hit::None;

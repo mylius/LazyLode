@@ -48,7 +48,13 @@ pub struct SSHTunnelProfile {
 impl Config {
     fn get_config_dir() -> PathBuf {
         // Get the home directory
-        let home = std::env::var("HOME").expect("Could not find HOME directory");
+        let home = std::env::var("HOME").unwrap_or_else(|_| String::from(""));
+        if home.is_empty() {
+            return dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".config")
+                .join("lazylode");
+        }
         let config_dir = PathBuf::from(home).join(".config").join("lazylode");
 
         config_dir
@@ -71,14 +77,15 @@ impl Config {
             for entry in entries {
                 let entry = entry.context("Failed to read directory entry")?;
                 let path = entry.path();
-                
+
                 if path.extension().and_then(|s| s.to_str()) == Some("toml") {
-                    let filename = path.file_name()
+                    let filename = path
+                        .file_name()
                         .and_then(|n| n.to_str())
                         .context("Invalid filename")?;
-                    
+
                     let user_theme_path = user_theme_dir.join(filename);
-                    
+
                     // Only copy if the theme doesn't already exist in user config
                     if !user_theme_path.exists() {
                         std::fs::copy(&path, &user_theme_path)
@@ -221,13 +228,13 @@ impl Config {
         let mut themes = Vec::new();
 
         if theme_dir.exists() {
-            let entries = std::fs::read_dir(&theme_dir)
-                .context("Failed to read themes directory")?;
+            let entries =
+                std::fs::read_dir(&theme_dir).context("Failed to read themes directory")?;
 
             for entry in entries {
                 let entry = entry.context("Failed to read directory entry")?;
                 let path = entry.path();
-                
+
                 if path.extension().and_then(|s| s.to_str()) == Some("toml") {
                     if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                         themes.push(stem.to_string());
