@@ -1,6 +1,6 @@
 use super::{
     core::DatabaseConnection, mongodb::MongoConnection, postgres::PostgresConnection,
-    ConnectionConfig, ConnectionStatus, DatabaseType,
+    sqlite::SqliteConnection, ConnectionConfig, ConnectionStatus, DatabaseType,
 };
 use anyhow::Result;
 use std::collections::HashMap;
@@ -10,6 +10,7 @@ pub fn create_database_connection(config: ConnectionConfig) -> Box<dyn DatabaseC
     match config.db_type {
         DatabaseType::Postgres => Box::new(PostgresConnection::new(config)),
         DatabaseType::MongoDB => Box::new(MongoConnection::new(config)),
+        DatabaseType::SQLite => Box::new(SqliteConnection::new(config)),
     }
 }
 

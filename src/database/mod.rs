@@ -4,6 +4,7 @@ pub use core::{DatabaseConnection, QueryParams, QueryResult};
 // Database implementations
 mod mongodb;
 mod postgres;
+mod sqlite;
 
 // SSH tunneling support
 pub mod ssh_tunnel;
@@ -22,6 +23,7 @@ use serde::{Deserialize, Serialize};
 pub enum DatabaseType {
     Postgres,
     MongoDB,
+    SQLite,
 }
 
 impl Default for DatabaseType {
@@ -80,7 +82,9 @@ impl Default for DatabaseConfig {
 pub struct ConnectionConfig {
     pub name: String,
     pub db_type: DatabaseType,
+    #[serde(default)]
     pub host: String,
+    #[serde(default)]
     pub port: u16,
     #[serde(default)]
     pub username: String,
