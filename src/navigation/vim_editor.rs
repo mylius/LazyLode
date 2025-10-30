@@ -620,6 +620,4 @@ impl VimEditor {
             String::new()
         }
     }
-
-    // No system clipboard integration; yanks are stored in a global in-app buffer
 }

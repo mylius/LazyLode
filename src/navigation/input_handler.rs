@@ -292,7 +292,6 @@ impl NavigationInputHandler {
         app: &mut App,
     ) -> bool {
         match action {
-            
             // Open New Connection modal when pressing 'a' in Connections pane
             crate::navigation::types::NavigationAction::Append => {
                 if app.active_pane == Pane::Connections {
@@ -823,6 +822,11 @@ impl NavigationInputHandler {
                 app.input_mode = crate::app::InputMode::Normal;
                 // Exit insert mode for all fields in the pane
                 app.query_input_pane.exit_insert_mode();
+                // Sync navigation manager's vim mode
+                app.navigation_manager
+                    .box_manager_mut()
+                    .vim_editor_mut()
+                    .mode = crate::navigation::types::VimMode::Normal;
             }
             KeyCode::Char('y') => {
                 // Handle yank word in insert mode
