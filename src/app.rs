@@ -161,6 +161,9 @@ pub struct App {
     pub query_input_pane: QueryInputPane,
     pub sidebar_pane: SidebarPane,
     pub results_pane: ResultsPane,
+    /// Pending numeric repeat count for vim-style actions in Normal mode
+    pub pending_count: Option<usize>,
+    pub last_key_was_y: bool,
 }
 
 impl App {
@@ -206,6 +209,8 @@ impl App {
             query_input_pane: QueryInputPane::new(),
             sidebar_pane: SidebarPane::new(),
             results_pane: ResultsPane::new(),
+            pending_count: None,
+            last_key_was_y: false,
         };
 
         app.load_connections();
@@ -267,6 +272,8 @@ impl App {
             query_input_pane: QueryInputPane::new(),
             sidebar_pane: SidebarPane::new(),
             results_pane: ResultsPane::new(),
+            pending_count: None,
+            last_key_was_y: false,
         };
 
         app.load_connections();

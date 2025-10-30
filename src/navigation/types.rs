@@ -182,24 +182,6 @@ impl Default for KeyMapping {
 
         // Directional pane navigation - LazyVim style with Ctrl+h/j/k/l
         mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('h')),
-            NavigationAction::FocusPaneLeft,
-        );
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('l')),
-            NavigationAction::FocusPaneRight,
-        );
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('k')),
-            NavigationAction::FocusPaneUp,
-        );
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('j')),
-            NavigationAction::FocusPaneDown,
-        );
-
-        // Alternative directional pane navigation with Shift+h/j/k/l
-        mapping.add_mapping(
             KeyCombination::with_shift(KeyCode::Char('H')),
             NavigationAction::FocusPaneLeft,
         );
@@ -214,24 +196,6 @@ impl Default for KeyMapping {
         mapping.add_mapping(
             KeyCombination::with_shift(KeyCode::Char('J')),
             NavigationAction::FocusPaneDown,
-        );
-
-        // Box navigation - LazyVim style with Ctrl+letter
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('t')),
-            NavigationAction::FocusTextInput,
-        );
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('d')),
-            NavigationAction::FocusDataTable,
-        );
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('v')),
-            NavigationAction::FocusTreeView,
-        );
-        mapping.add_mapping(
-            KeyCombination::with_ctrl(KeyCode::Char('b')),
-            NavigationAction::FocusListView,
         );
 
         // Movement

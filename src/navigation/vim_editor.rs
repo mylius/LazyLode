@@ -36,6 +36,12 @@ impl VimEditor {
         }
     }
 
+    pub fn set_yank_buffer(&mut self, text: String) {
+        if let Ok(mut global) = GLOBAL_YANK_BUFFER.lock() {
+            *global = text;
+        }
+    }
+
     pub fn with_content(content: String) -> Self {
         Self {
             content,

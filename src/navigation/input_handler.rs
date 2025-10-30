@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::input::{Action, NavigationAction as OldNavigationAction, TreeAction};
-use crate::navigation::types::{NavigationAction, Pane as OldPane};
+use crate::navigation::types::{NavigationAction, Pane};
 use crate::ui::types::Direction as OldDirection;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -103,17 +103,17 @@ impl NavigationInputHandler {
 
         // Handle pane-specific input based on input mode
         match app.active_pane {
-            OldPane::Connections => {
+            Pane::Connections => {
                 Self::handle_connections_input(key, modifiers, app).await?;
             }
-            OldPane::QueryInput => {
+            Pane::QueryInput => {
                 Self::handle_query_input(key, modifiers, app).await?;
             }
-            OldPane::Results => {
+            Pane::Results => {
                 Self::handle_results_input(key, modifiers, app).await?;
             }
-            OldPane::SchemaExplorer => {}
-            OldPane::CommandLine => {}
+            Pane::SchemaExplorer => {}
+            Pane::CommandLine => {}
         }
 
         Ok(())
@@ -236,6 +236,30 @@ impl NavigationInputHandler {
             }
         }
 
+        // Accumulate numeric repeat count in Normal mode (vim-style): 4j, 10k, etc.
+        if app.input_mode == crate::app::InputMode::Normal
+            && modifiers.is_empty()
+            && matches!(key, KeyCode::Char('0'..='9'))
+        {
+            if let KeyCode::Char(d) = key {
+                match d {
+                    '1'..='9' => {
+                        let new_digit = (d as u8 - b'0') as usize;
+                        app.pending_count = Some(app.pending_count.unwrap_or(0) * 10 + new_digit);
+                        return true; // consume digit
+                    }
+                    '0' => {
+                        if app.pending_count.is_some() {
+                            app.pending_count = Some(app.pending_count.unwrap_or(0) * 10);
+                            return true; // consume digit when building a count
+                        }
+                        // If no pending count, let '0' fall through to mappings (e.g., line start if mapped)
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // Check if this key combination maps to a navigation action
         if let Some(action) = app
             .navigation_manager
@@ -243,7 +267,17 @@ impl NavigationInputHandler {
             .key_mapping
             .get_action(key, modifiers)
         {
-            return Self::handle_navigation_action(action, app);
+            // Apply pending numeric repeat count if present; default to 1
+            let repeat = app.pending_count.take().unwrap_or(1).max(1);
+            let mut handled_any = false;
+            for _ in 0..repeat {
+                let handled = Self::handle_navigation_action(action, app);
+                handled_any = handled_any || handled;
+                if !handled {
+                    break;
+                }
+            }
+            return handled_any;
         }
 
         // Delegate to box manager for box-specific handling
@@ -261,7 +295,7 @@ impl NavigationInputHandler {
             
             // Open New Connection modal when pressing 'a' in Connections pane
             crate::navigation::types::NavigationAction::Append => {
-                if app.active_pane == OldPane::Connections {
+                if app.active_pane == Pane::Connections {
                     app.show_connection_modal();
                     return true;
                 }
@@ -295,8 +329,9 @@ impl NavigationInputHandler {
             }
             // Movement actions - delegate to app functions
             crate::navigation::types::NavigationAction::MoveLeft => {
+                app.last_key_was_y = false;
                 match app.active_pane {
-                    OldPane::QueryInput => {
+                    Pane::QueryInput => {
                         app.handle_navigation(OldNavigationAction::Direction(OldDirection::Left));
                         // Sync vim editor cursor position with app cursor position
                         app.navigation_manager
@@ -304,8 +339,8 @@ impl NavigationInputHandler {
                             .vim_editor_mut()
                             .set_cursor_position(app.cursor_position);
                     }
-                    OldPane::Results => app.move_cursor_in_results(OldDirection::Left),
-                    OldPane::Connections => {
+                    Pane::Results => app.move_cursor_in_results(OldDirection::Left),
+                    Pane::Connections => {
                         // In connections pane, left should collapse tree items
                         if let Err(e) = executor::block_on(
                             app.handle_tree_action(crate::input::TreeAction::Collapse),
@@ -321,8 +356,9 @@ impl NavigationInputHandler {
                 true
             }
             crate::navigation::types::NavigationAction::MoveRight => {
+                app.last_key_was_y = false;
                 match app.active_pane {
-                    OldPane::QueryInput => {
+                    Pane::QueryInput => {
                         app.handle_navigation(OldNavigationAction::Direction(OldDirection::Right));
                         // Sync vim editor cursor position with app cursor position
                         app.navigation_manager
@@ -330,8 +366,8 @@ impl NavigationInputHandler {
                             .vim_editor_mut()
                             .set_cursor_position(app.cursor_position);
                     }
-                    OldPane::Results => app.move_cursor_in_results(OldDirection::Right),
-                    OldPane::Connections => {
+                    Pane::Results => app.move_cursor_in_results(OldDirection::Right),
+                    Pane::Connections => {
                         // In connections pane, right should expand tree items
                         if let Err(e) = executor::block_on(
                             app.handle_tree_action(crate::input::TreeAction::Expand),
@@ -345,10 +381,11 @@ impl NavigationInputHandler {
                 true
             }
             crate::navigation::types::NavigationAction::MoveUp => {
+                app.last_key_was_y = false;
                 match app.active_pane {
-                    OldPane::Results => app.move_cursor_in_results(OldDirection::Up),
-                    OldPane::Connections => app.move_selection_up(),
-                    OldPane::QueryInput => {
+                    Pane::Results => app.move_cursor_in_results(OldDirection::Up),
+                    Pane::Connections => app.move_selection_up(),
+                    Pane::QueryInput => {
                         app.handle_navigation(OldNavigationAction::Direction(OldDirection::Up));
                         // Sync vim editor cursor position with app cursor position
                         app.navigation_manager
@@ -361,10 +398,11 @@ impl NavigationInputHandler {
                 true
             }
             crate::navigation::types::NavigationAction::MoveDown => {
+                app.last_key_was_y = false;
                 match app.active_pane {
-                    OldPane::Results => app.move_cursor_in_results(OldDirection::Down),
-                    OldPane::Connections => app.move_selection_down(),
-                    OldPane::QueryInput => {
+                    Pane::Results => app.move_cursor_in_results(OldDirection::Down),
+                    Pane::Connections => app.move_selection_down(),
+                    Pane::QueryInput => {
                         app.handle_navigation(OldNavigationAction::Direction(OldDirection::Down));
                         // Sync vim editor cursor position with app cursor position
                         app.navigation_manager
@@ -375,6 +413,55 @@ impl NavigationInputHandler {
                     _ => {}
                 }
                 true
+            }
+            // Yank actions use mapped keys (no hardcoded chars). In Results:
+            // - single YankLine: yank cell; - double YankLine (yy): yank row
+            crate::navigation::types::NavigationAction::YankLine => {
+                if app.active_pane == Pane::Results {
+                    if app.last_key_was_y {
+                        // yy: yank entire row
+                        if let Some(selected_tab_index) = app.selected_result_tab_index {
+                            if let Some((_, result, _)) = app.result_tabs.get(selected_tab_index) {
+                                if let Some(row) = result.rows.get(app.cursor_position.1) {
+                                    let row_content = row.join("\t");
+                                    // system clipboard via app API
+                                    let _ = app.copy_row();
+                                    // also set vim yank buffer
+                                    app.navigation_manager
+                                        .box_manager_mut()
+                                        .vim_editor_mut()
+                                        .set_yank_buffer(row_content);
+                                }
+                            }
+                        }
+                        app.last_key_was_y = false;
+                        return true;
+                    } else {
+                        // first 'y': yank cell and arm for yy
+                        let mut cell_content = String::new();
+                        if let Some(selected_tab_index) = app.selected_result_tab_index {
+                            if let Some((_, result, _)) = app.result_tabs.get(selected_tab_index) {
+                                if let Some(row) = result.rows.get(app.cursor_position.1) {
+                                    if let Some(cell) = row.get(app.cursor_position.0) {
+                                        cell_content = cell.clone();
+                                    }
+                                }
+                            }
+                        }
+                        if !cell_content.is_empty() {
+                            let _ = app.copy_cell();
+                            app.navigation_manager
+                                .box_manager_mut()
+                                .vim_editor_mut()
+                                .set_yank_buffer(cell_content);
+                        }
+                        app.last_key_was_y = true;
+                        return true;
+                    }
+                }
+                // Non-results: delegate to vim editor default behavior
+                app.last_key_was_y = false;
+                app.navigation_manager.handle_action(action)
             }
             // Pane navigation actions - delegate to navigation manager
             crate::navigation::types::NavigationAction::FocusConnections
@@ -388,6 +475,7 @@ impl NavigationInputHandler {
             | crate::navigation::types::NavigationAction::FocusPaneDown
             | crate::navigation::types::NavigationAction::NextPane
             | crate::navigation::types::NavigationAction::PreviousPane => {
+                app.last_key_was_y = false;
                 let handled = app.navigation_manager.handle_action(action);
                 if handled {
                     // Sync app's active_pane with navigation manager's state
@@ -417,6 +505,7 @@ impl NavigationInputHandler {
             }
             // Other actions - delegate to navigation manager
             _ => {
+                app.last_key_was_y = false;
                 let handled = app.navigation_manager.handle_action(action);
                 if handled {
                     // Sync app's active_pane with navigation manager's state
@@ -444,19 +533,19 @@ impl NavigationInputHandler {
 
         // Handle pane-specific input
         match app.active_pane {
-            OldPane::Connections => {
+            Pane::Connections => {
                 Self::handle_connections_input(key, modifiers, app).await?;
             }
-            OldPane::QueryInput => {
+            Pane::QueryInput => {
                 Self::handle_query_input(key, modifiers, app).await?;
             }
-            OldPane::Results => {
+            Pane::Results => {
                 Self::handle_results_input(key, modifiers, app).await?;
             }
-            OldPane::SchemaExplorer => {
+            Pane::SchemaExplorer => {
                 Self::handle_connections_input(key, modifiers, app).await?;
             }
-            OldPane::CommandLine => {
+            Pane::CommandLine => {
                 Self::handle_query_input(key, modifiers, app).await?;
             }
         }
@@ -689,7 +778,7 @@ impl NavigationInputHandler {
             match action {
                 Action::Navigation(OldNavigationAction::FocusPane(pane)) => {
                     app.active_pane = pane;
-                    if pane == OldPane::QueryInput {
+                    if pane == Pane::QueryInput {
                         let len = app.get_current_field_length();
                         app.cursor_position.1 = app.cursor_position.1.min(len);
                     }
@@ -783,11 +872,20 @@ impl NavigationInputHandler {
     }
 
     async fn handle_results_input_normal_mode(
-        _key: KeyCode,
-        _modifiers: KeyModifiers,
-        _app: &mut App,
+        key: KeyCode,
+        modifiers: KeyModifiers,
+        app: &mut App,
     ) -> Result<()> {
-        // TODO: Handle deletion modal when implemented
-        return Ok(());
+        // Legacy keymap support for copy/paste in results
+        if let Some(action) = app.config.keymap.get_action(key, modifiers) {
+            match action {
+                Action::CopyCell => {
+                    let _ = app.copy_cell();
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 }
