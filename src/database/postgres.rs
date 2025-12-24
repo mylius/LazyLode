@@ -141,7 +141,7 @@ impl DatabaseConnection for PostgresConnection {
 
     async fn execute_query(&self, query: &str) -> Result<QueryResult> {
         if let Some(client) = &self.client {
-            logging::debug(&format!("Executing query: {}", query))?;
+            logging::debug(&format!("Executing query: {}", query));
             let rows = client.query(query, &[]).await?;
 
             let columns = if !rows.is_empty() {
@@ -296,7 +296,7 @@ impl DatabaseConnection for PostgresConnection {
         logging::debug(&format!(
             "Fetching table data for schema {}, table {}",
             schema, table
-        ))?;
+        ));
 
         // Prepare identifiers
         let schema_ident = sanitize_column_name(schema);
@@ -379,7 +379,7 @@ impl DatabaseConnection for PostgresConnection {
             query.push_str(&format!(" OFFSET {}", offset));
         }
 
-        logging::debug(&format!("Executing query: {}", query))?;
+        logging::debug(&format!("Executing query: {}", query));
         self.execute_query(&query).await
     }
 

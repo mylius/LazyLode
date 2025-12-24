@@ -59,31 +59,44 @@ pub fn init_logger() -> Result<()> {
     Ok(())
 }
 
-pub fn log(level: LogLevel, message: &str) -> Result<()> {
-    let mut guard = LOG_FILE
-        .lock()
-        .map_err(|_| anyhow::anyhow!("Failed to lock log file mutex"))?;
+pub fn log(level: LogLevel, message: &str) {
+    let mut guard = match LOG_FILE.lock() {
+        Ok(g) => g,
+        Err(_) => {
+            eprintln!("Failed to lock log file mutex");
+            return;
+        }
+    };
     if let Some(file) = &mut *guard {
         let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
         let log_entry = format!("[{}] {} - {}\n", timestamp, level.as_str(), message);
-        file.write_all(log_entry.as_bytes())?;
-        file.flush()?;
+        if let Err(e) = file.write_all(log_entry.as_bytes()) {
+            eprintln!("Failed to write to log file: {}", e);
+            return;
+        }
+        if let Err(e) = file.flush() {
+            eprintln!("Failed to flush log file: {}", e);
+        }
     }
-    Ok(())
 }
 
-pub fn debug(message: &str) -> Result<()> {
+pub fn debug(message: &str) {
     log(LogLevel::Debug, message)
 }
 
-pub fn info(message: &str) -> Result<()> {
+pub fn info(message: &str) {
     log(LogLevel::Info, message)
 }
 
-pub fn warn(message: &str) -> Result<()> {
+pub fn warn(message: &str) {
     log(LogLevel::Warning, message)
 }
 
-pub fn error(message: &str) -> Result<()> {
+pub fn error(message: &str) {
     log(LogLevel::Error, message)
+}
+
+pub fn handle_non_critical_error(err: &anyhow::Error) {
+    let error_msg = format!("{}", err);
+    error(&error_msg);
 }

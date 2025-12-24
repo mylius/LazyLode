@@ -13,8 +13,6 @@ pub mod ssh_tunnel;
 pub mod factory;
 pub use factory::{ConnectionManager, PrefetchedDatabase, PrefetchedSchema, PrefetchedStructure};
 
-// Error handling
-pub mod error;
 
 // Common types and configurations
 use serde::{Deserialize, Serialize};
@@ -112,7 +110,7 @@ impl Default for ConnectionConfig {
         Self {
             name: String::new(),
             db_type: DatabaseType::default(),
-            host: String::from("localhost"),
+            host: "localhost".to_string(),
             port: 5432,
             username: String::new(),
             password: None,

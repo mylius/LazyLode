@@ -10,7 +10,7 @@ use std::path::PathBuf;
 pub struct ConfigFile {
     pub theme: String,
     #[serde(default)]
-    pub database: DatabaseConfig,
+    pub database: DefaultPortConfig,
     #[serde(default)]
     pub connections: Vec<ConnectionConfig>,
     #[serde(default)]
@@ -22,7 +22,7 @@ pub struct ConfigFile {
 }
 
 #[derive(Deserialize, Serialize, Default, Clone)]
-pub struct DatabaseConfig {
+pub struct DefaultPortConfig {
     pub default_port_postgres: u16,
     pub default_port_mongodb: u16,
 }
@@ -31,7 +31,7 @@ pub struct DatabaseConfig {
 pub struct Config {
     pub theme_name: String,
     pub theme: Theme,
-    pub database: DatabaseConfig,
+    pub database: DefaultPortConfig,
     pub connections: Vec<ConnectionConfig>,
     pub ssh_tunnels: Vec<SSHTunnelProfile>,
     pub keymap: KeyConfig,
@@ -48,7 +48,7 @@ pub struct SSHTunnelProfile {
 impl Config {
     fn get_config_dir() -> PathBuf {
         // Get the home directory
-        let home = std::env::var("HOME").unwrap_or_else(|_| String::from(""));
+        let home = std::env::var("HOME").unwrap_or_else(|_| String::new());
         if home.is_empty() {
             return dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
@@ -116,9 +116,9 @@ impl Config {
         let config_path = config_dir.join("config.toml");
 
         // Install default themes on first run
-        Self::install_default_themes().unwrap_or_else(|err| {
-            eprintln!("Warning: Failed to install default themes: {}", err);
-        });
+        if let Err(err) = Self::install_default_themes() {
+            crate::logging::handle_non_critical_error(&err);
+        }
 
         if config_path.exists() {
             let content =
@@ -128,8 +128,8 @@ impl Config {
             std::fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
 
             let default_config = ConfigFile {
-                theme: String::from("catppuccin_mocha"),
-                database: DatabaseConfig {
+                theme: "catppuccin_mocha".to_string(),
+                database: DefaultPortConfig {
                     default_port_postgres: 5432,
                     default_port_mongodb: 27017,
                 },
@@ -149,22 +149,28 @@ impl Config {
     }
 
     pub fn new() -> Self {
-        let config_file = Self::load_config().unwrap_or_else(|err| {
-            eprintln!("Error loading config: {}", err);
-            ConfigFile {
-                theme: String::from("default"),
-                database: DatabaseConfig::default(),
-                connections: Vec::new(),
-                ssh_tunnels: Vec::new(),
-                keymap: KeyConfig::default(),
-                navigation: NavigationConfig::default(),
+        let config_file = match Self::load_config() {
+            Ok(cfg) => cfg,
+            Err(err) => {
+                crate::logging::handle_non_critical_error(&err);
+                ConfigFile {
+                    theme: "default".to_string(),
+                    database: DefaultPortConfig::default(),
+                    connections: Vec::new(),
+                    ssh_tunnels: Vec::new(),
+                    keymap: KeyConfig::default(),
+                    navigation: NavigationConfig::default(),
+                }
             }
-        });
+        };
 
-        let theme = Self::load_theme(&config_file.theme).unwrap_or_else(|err| {
-            eprintln!("Error loading theme: {}", err);
-            Theme::default()
-        });
+        let theme = match Self::load_theme(&config_file.theme) {
+            Ok(t) => t,
+            Err(err) => {
+                crate::logging::handle_non_critical_error(&err);
+                Theme::default()
+            }
+        };
 
         Self {
             theme,
@@ -177,7 +183,7 @@ impl Config {
         }
     }
 
-    // Save connections to config file
+    /// Save connections to config file
     pub fn save_connections(&self, connections: &Vec<ConnectionConfig>) -> Result<()> {
         let config_dir = Self::get_config_dir();
         let config_path = config_dir.join("config.toml");
@@ -194,13 +200,13 @@ impl Config {
         Ok(())
     }
 
-    // Load connections from config file
+    /// Load connections from config file
     pub fn load_connections(&self) -> Result<Vec<ConnectionConfig>> {
         let config_file = Self::load_config()?;
         Ok(config_file.connections)
     }
 
-    // Save entire configuration
+    /// Save entire configuration
     pub fn save(&self) -> Result<()> {
         let config_dir = Self::get_config_dir();
         let config_path = config_dir.join("config.toml");
@@ -222,7 +228,7 @@ impl Config {
         Ok(())
     }
 
-    // List available themes
+    /// List available themes
     pub fn list_themes() -> Result<Vec<String>> {
         let theme_dir = Self::get_config_dir().join("themes");
         let mut themes = Vec::new();
@@ -247,7 +253,7 @@ impl Config {
         Ok(themes)
     }
 
-    // Switch theme
+    /// Switch theme
     pub fn switch_theme(&mut self, theme_name: &str) -> Result<()> {
         let theme = Self::load_theme(theme_name)?;
         self.theme = theme;

@@ -1,5 +1,17 @@
 //! `app.rs` - Defines the main application logic and data structures.
+use std::collections::{HashMap, HashSet};
+
+use anyhow::Result;
+use clipboard::{ClipboardContext, ClipboardProvider};
+use tokio::sync::mpsc;
+
 use crate::command::CommandBuffer;
+use crate::config::Config;
+use crate::database::core::ForeignKeyTarget;
+use crate::database::{
+    ConnectionConfig, ConnectionManager, ConnectionStatus, DatabaseType, PrefetchedStructure,
+    QueryParams, QueryResult,
+};
 use crate::input::{NavigationAction, TreeAction};
 use crate::logging;
 use crate::navigation::types::Pane;
@@ -10,17 +22,6 @@ use crate::ui::panes::query_input::QueryInputPane;
 use crate::ui::panes::results::ResultsPane;
 use crate::ui::panes::sidebar::SidebarPane;
 use crate::ui::types::Direction;
-use clipboard::{ClipboardContext, ClipboardProvider};
-
-use crate::config::Config;
-use crate::database::core::ForeignKeyTarget;
-use crate::database::{
-    ConnectionConfig, ConnectionManager, ConnectionStatus, DatabaseType, PrefetchedStructure,
-    QueryParams, QueryResult,
-};
-use anyhow::Result;
-use std::collections::{HashMap, HashSet};
-use tokio::sync::mpsc;
 
 #[derive(Debug)]
 pub enum PrefetchResult {
@@ -292,7 +293,7 @@ impl App {
 
         // Initialize connections and start background prefetching
         if !app.saved_connections.is_empty() {
-            logging::info("Starting background database prefetching...")?;
+            logging::info("Starting background database prefetching...");
 
             // Set all connections to "Connecting" status initially
             for connection in &app.saved_connections {
@@ -357,8 +358,7 @@ impl App {
                         logging::info(&format!(
                             "Successfully loaded databases for: {}",
                             connection_name
-                        ))
-                        .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+                        ));
                     }
                     Err(e) => {
                         let _ = tx_clone.send(PrefetchResult::Failed(
@@ -368,8 +368,7 @@ impl App {
                         logging::error(&format!(
                             "Failed to load databases for {}: {}",
                             connection_name, e
-                        ))
-                        .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+                        ));
                     }
                 }
             });
@@ -423,7 +422,7 @@ impl App {
                                 .map(|p| p.databases.len())
                                 .unwrap_or(0),
                             connection_name
-                        ))?;
+                        ));
                     }
                     PrefetchResult::Failed(connection_name, error_message) => {
                         // Update connection status to failed
@@ -442,7 +441,7 @@ impl App {
                         logging::error(&format!(
                             "Background prefetching failed for {}: {}",
                             connection_name, error_message
-                        ))?;
+                        ));
                     }
                 }
             }
@@ -633,9 +632,9 @@ impl App {
         };
 
         self.saved_connections.push(new_connection.clone());
-        self.config
-            .save_connections(&self.saved_connections)
-            .unwrap_or_else(|err| eprintln!("Failed to save connections: {}", err));
+        if let Err(err) = self.config.save_connections(&self.saved_connections) {
+            crate::logging::handle_non_critical_error(&err);
+        }
 
         // Add to connection tree
         self.connection_tree.push(ConnectionTreeItem {
@@ -650,10 +649,13 @@ impl App {
 
     /// Loads connections from the configuration file.
     pub fn load_connections(&mut self) {
-        self.saved_connections = self.config.load_connections().unwrap_or_else(|err| {
-            eprintln!("Error loading connections: {}", err);
-            Vec::new()
-        });
+        self.saved_connections = match self.config.load_connections() {
+            Ok(conns) => conns,
+            Err(err) => {
+                crate::logging::handle_non_critical_error(&err);
+                Vec::new()
+            }
+        };
 
         self.connection_statuses = self
             .saved_connections
@@ -773,8 +775,7 @@ impl App {
         if let Some(idx) = self.selected_connection_idx {
             match action {
                 TreeAction::Expand => {
-                    logging::debug(&format!("Expanding connection at visual index {}", idx))
-                        .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+                    logging::debug(&format!("Expanding connection at visual index {}", idx));
                     self.toggle_tree_item(idx).await?;
                 }
                 TreeAction::Collapse => {
@@ -816,7 +817,7 @@ impl App {
         logging::debug(&format!(
             "Attempting to expand connection at index {}",
             index
-        ))?;
+        ));
 
         if let Some(connection) = self.connection_tree.get_mut(index) {
             if !connection.is_expanded {
@@ -850,7 +851,7 @@ impl App {
                     logging::info(&format!(
                         "Expanded connection {} using existing prefetched data",
                         connection.connection_config.name
-                    ))?;
+                    ));
                     return Ok(());
                 }
 
@@ -859,7 +860,7 @@ impl App {
                 logging::info(&format!(
                     "Connecting to database: {}",
                     connection.connection_config.name
-                ))?;
+                ));
 
                 // Try to connect with prefetching
                 let mut cfg = connection.connection_config.clone();
@@ -920,14 +921,14 @@ impl App {
                         logging::info(&format!(
                             "Successfully connected and prefetched: {}",
                             connection.connection_config.name
-                        ))?;
+                        ));
                     }
                     Err(e) => {
                         // Fallback to simple connection without prefetching
                         logging::warn(&format!(
                             "Prefetching failed for {}, falling back to simple connection: {}",
                             connection.connection_config.name, e
-                        ))?;
+                        ));
 
                         match self.connection_manager.connect(cfg.clone()).await {
                             Ok(_) => {
@@ -940,7 +941,7 @@ impl App {
                                             logging::debug(&format!(
                                                 "Found {} databases",
                                                 databases.len()
-                                            ))?;
+                                            ));
 
                                             connection.databases = databases
                                                 .into_iter()
@@ -957,13 +958,13 @@ impl App {
                                             logging::info(&format!(
                                                 "Successfully expanded connection {}",
                                                 connection.connection_config.name
-                                            ))?;
+                                            ));
                                         }
                                         Err(e) => {
                                             connection.status = ConnectionStatus::Failed;
                                             let error_msg =
                                                 format!("Failed to list databases: {}", e);
-                                            logging::error(&error_msg)?;
+                                            logging::error(&error_msg);
                                             return Err(anyhow::anyhow!(error_msg));
                                         }
                                     }
@@ -972,14 +973,14 @@ impl App {
                                     let error_msg =
                                         "Connection not found after successful connection"
                                             .to_string();
-                                    logging::error(&error_msg)?;
+                                    logging::error(&error_msg);
                                     return Err(anyhow::anyhow!(error_msg));
                                 }
                             }
                             Err(e) => {
                                 connection.status = ConnectionStatus::Failed;
                                 let error_msg = format!("Failed to connect: {}", e);
-                                logging::error(&error_msg)?;
+                                logging::error(&error_msg);
                                 return Err(anyhow::anyhow!(error_msg));
                             }
                         }
@@ -991,11 +992,11 @@ impl App {
                 logging::debug(&format!(
                     "Collapsed connection {}",
                     connection.connection_config.name
-                ))?;
+                ));
             }
         } else {
             let error_msg = format!("Connection at index {} not found", index);
-            logging::error(&error_msg)?;
+            logging::error(&error_msg);
             return Err(anyhow::anyhow!(error_msg));
         }
 
@@ -1039,7 +1040,7 @@ impl App {
                     logging::info(&format!(
                         "Prefetching schemas for database: {}",
                         database.name
-                    ))?;
+                    ));
 
                     // Ensure we have a connection first
                     if !self
@@ -1050,7 +1051,7 @@ impl App {
                         logging::info(&format!(
                             "Creating connection for: {}",
                             connection.connection_config.name
-                        ))?;
+                        ));
 
                         let mut cfg = connection.connection_config.clone();
                         if cfg.ssh_tunnel.is_none() {
@@ -1127,10 +1128,10 @@ impl App {
                             logging::info(&format!(
                                 "Successfully prefetched schemas for database: {}",
                                 database.name
-                            ))?;
+                            ));
                         }
                         Err(e) => {
-                            logging::error(&format!("Failed to prefetch schemas: {}", e))?;
+                            logging::error(&format!("Failed to prefetch schemas: {}", e));
                             return Err(e);
                         }
                     }
@@ -1152,7 +1153,7 @@ impl App {
         logging::debug(&format!(
             "Attempting to expand schema at connection {}, database {}, schema {}",
             conn_idx, db_idx, schema_idx
-        ))?;
+        ));
 
         if let Some(connection) = self.connection_tree.get_mut(conn_idx) {
             if let Some(database) = connection.databases.get_mut(db_idx) {
@@ -1179,7 +1180,7 @@ impl App {
                                         logging::info(&format!(
                                             "Successfully expanded schema {} using prefetched data",
                                             schema.name
-                                        ))?;
+                                        ));
                                         return Ok(());
                                     }
                                 }
@@ -1187,7 +1188,7 @@ impl App {
                         }
 
                         // Need to prefetch tables for this schema
-                        logging::info(&format!("Prefetching tables for schema: {}", schema.name))?;
+                        logging::info(&format!("Prefetching tables for schema: {}", schema.name));
 
                         match self
                             .connection_manager
@@ -1224,16 +1225,16 @@ impl App {
                                 logging::info(&format!(
                                     "Successfully prefetched tables for schema: {}",
                                     schema.name
-                                ))?;
+                                ));
                             }
                             Err(e) => {
-                                logging::error(&format!("Failed to prefetch tables: {}", e))?;
+                                logging::error(&format!("Failed to prefetch tables: {}", e));
                                 return Err(e);
                             }
                         }
                     } else {
                         schema.is_expanded = false;
-                        logging::debug(&format!("Collapsed schema {}", schema.name))?;
+                        logging::debug(&format!("Collapsed schema {}", schema.name));
                     }
                 }
             }
@@ -1259,9 +1260,9 @@ impl App {
             };
 
             self.saved_connections[index] = updated_connection.clone();
-            self.config
-                .save_connections(&self.saved_connections)
-                .unwrap_or_else(|err| eprintln!("Failed to save connections: {}", err));
+            if let Err(err) = self.config.save_connections(&self.saved_connections) {
+                crate::logging::handle_non_critical_error(&err);
+            }
 
             // Update the connection tree
             if let Some(tree_item) = self.connection_tree.get_mut(index) {
@@ -1275,9 +1276,9 @@ impl App {
         if let Some(index) = self.selected_connection_idx {
             // Remove the connection from saved_connections
             self.saved_connections.remove(index);
-            self.config
-                .save_connections(&self.saved_connections)
-                .unwrap_or_else(|err| eprintln!("Failed to save connections: {}", err));
+            if let Err(err) = self.config.save_connections(&self.saved_connections) {
+                crate::logging::handle_non_critical_error(&err);
+            }
 
             // Remove from connection tree
             self.connection_tree.remove(index);
@@ -1670,8 +1671,7 @@ impl App {
             logging::debug(&format!(
                 "Toggling tree item at visual index {}",
                 visual_index
-            ))
-            .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+            ));
             match tree_item {
                 TreeItem::Connection(conn_idx) => {
                     self.expand_connection(conn_idx).await?;
@@ -1700,8 +1700,7 @@ impl App {
                                         logging::debug(&format!(
                                             "Fetching table data for schema {}, table {}",
                                             schema.name, table
-                                        ))
-                                        .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+                                        ));
 
                                         match db_connection
                                             .fetch_table_data(&schema.name, table, &params)
@@ -1784,12 +1783,12 @@ impl App {
                                                 logging::info(&format!(
                                                     "Successfully fetched data from table {}",
                                                     table
-                                                ))?;
+                                                ));
                                             }
                                             Err(e) => {
                                                 let error_msg =
                                                     format!("Failed to fetch table data: {}", e);
-                                                logging::error(&error_msg)?;
+                                                logging::error(&error_msg);
                                                 return Err(anyhow::anyhow!(error_msg));
                                             }
                                         }
@@ -1941,7 +1940,7 @@ impl App {
                             Ok(ctx) => ctx,
                             Err(e) => {
                                 let error_msg = format!("Failed to access clipboard: {}", e);
-                                logging::error(&error_msg)?;
+                                logging::error(&error_msg);
                                 self.status_message = Some(error_msg);
                                 return Ok(());
                             }
@@ -1949,13 +1948,13 @@ impl App {
 
                         if let Err(e) = ctx.set_contents(cell.clone()) {
                             let error_msg = format!("Failed to copy to clipboard: {}", e);
-                            logging::error(&error_msg)?;
+                            logging::error(&error_msg);
                             self.status_message = Some(error_msg);
                             return Ok(());
                         }
 
                         self.status_message = Some("Cell copied to clipboard".to_string());
-                        logging::info(&format!("Copied cell content to clipboard: {}", cell))?;
+                        logging::info(&format!("Copied cell content to clipboard: {}", cell));
                     }
                 }
             }
@@ -1978,7 +1977,7 @@ impl App {
                         Ok(ctx) => ctx,
                         Err(e) => {
                             let error_msg = format!("Failed to access clipboard: {}", e);
-                            logging::error(&error_msg)?;
+                            logging::error(&error_msg);
                             self.status_message = Some(error_msg);
                             return Ok(());
                         }
@@ -1986,13 +1985,13 @@ impl App {
 
                     if let Err(e) = ctx.set_contents(row_content.clone()) {
                         let error_msg = format!("Failed to copy to clipboard: {}", e);
-                        logging::error(&error_msg)?;
+                        logging::error(&error_msg);
                         self.status_message = Some(error_msg);
                         return Ok(());
                     }
 
                     self.status_message = Some("Row copied to clipboard".to_string());
-                    logging::info(&format!("Copied row to clipboard: {} cells", row.len()))?;
+                    logging::info(&format!("Copied row to clipboard: {} cells", row.len()));
                 }
             }
         }
@@ -2010,11 +2009,11 @@ impl App {
         match self.config.switch_theme(theme_name) {
             Ok(()) => {
                 self.status_message = Some(format!("Switched to theme: {}", theme_name));
-                logging::info(&format!("Theme switched to: {}", theme_name))?;
+                logging::info(&format!("Theme switched to: {}", theme_name));
             }
             Err(e) => {
                 let error_msg = format!("Failed to switch theme: {}", e);
-                logging::error(&error_msg)?;
+                logging::error(&error_msg);
                 self.status_message = Some(error_msg);
             }
         }
@@ -2139,37 +2138,37 @@ impl App {
     }
 
     pub async fn first_page(&mut self) -> Result<()> {
-        // Implementation for first page
+        self.mark_unimplemented("first_page");
         Ok(())
     }
 
     pub async fn previous_page(&mut self) -> Result<()> {
-        // Implementation for previous page
+        self.mark_unimplemented("previous_page");
         Ok(())
     }
 
     pub async fn next_page(&mut self) -> Result<()> {
-        // Implementation for next page
+        self.mark_unimplemented("next_page");
         Ok(())
     }
 
     pub async fn last_page(&mut self) -> Result<()> {
-        // Implementation for last page
+        self.mark_unimplemented("last_page");
         Ok(())
     }
 
     pub async fn confirm_deletions(&mut self) -> Result<()> {
-        // Implementation for confirming deletions
+        self.mark_unimplemented("confirm_deletions");
         Ok(())
     }
 
     pub async fn connect_to_database(&mut self, _index: usize) -> Result<()> {
-        // Implementation for connecting to database
+        self.mark_unimplemented("connect_to_database");
         Ok(())
     }
 
     pub async fn run_query(&mut self) -> Result<()> {
-        // Implementation for running query
+        self.mark_unimplemented("run_query");
         Ok(())
     }
 
@@ -2178,82 +2177,82 @@ impl App {
     }
 
     pub async fn save_query(&mut self) -> Result<()> {
-        // Implementation for saving query
+        self.mark_unimplemented("save_query");
         Ok(())
     }
 
     pub async fn load_query(&mut self) -> Result<()> {
-        // Implementation for loading query
+        self.mark_unimplemented("load_query");
         Ok(())
     }
 
     pub fn show_help(&mut self) {
-        // Implementation for showing help
+        self.mark_unimplemented("show_help");
     }
 
     pub fn toggle_row_deletion_mark(&mut self) {
-        // Implementation for toggling row deletion mark
+        self.mark_unimplemented("toggle_row_deletion_mark");
     }
 
     pub fn clear_deletion_marks(&mut self) {
-        // Implementation for clearing deletion marks
+        self.mark_unimplemented("clear_deletion_marks");
     }
 
     pub fn execute_command(&mut self) -> Result<()> {
-        // Implementation for executing command
+        self.mark_unimplemented("execute_command");
         Ok(())
     }
 
     pub fn command_history_up(&mut self) {
-        // Implementation for command history up
+        self.mark_unimplemented("command_history_up");
     }
 
     pub fn command_history_down(&mut self) {
-        // Implementation for command history down
+        self.mark_unimplemented("command_history_down");
     }
 
     pub fn cycle_suggestions(&mut self) {
-        // Implementation for cycling suggestions
+        self.mark_unimplemented("cycle_suggestions");
     }
 
     pub fn delete_selected_rows(&mut self) {
-        // Implementation for deleting selected rows
+        self.mark_unimplemented("delete_selected_rows");
     }
 
     pub fn undo_deletion(&mut self) {
-        // Implementation for undoing deletion
+        self.mark_unimplemented("undo_deletion");
     }
 
     pub fn move_cursor_down(&mut self) {
-        // Implementation for moving cursor down
+        self.mark_unimplemented("move_cursor_down");
     }
 
     pub fn move_cursor_up(&mut self) {
-        // Implementation for moving cursor up
+        self.mark_unimplemented("move_cursor_up");
     }
 
     pub fn move_cursor_left(&mut self) {
-        // Implementation for moving cursor left
+        self.mark_unimplemented("move_cursor_left");
     }
 
     pub fn move_cursor_right(&mut self) {
-        // Implementation for moving cursor right
+        self.mark_unimplemented("move_cursor_right");
     }
 
     pub fn page_down(&mut self) {
-        // Implementation for page down
+        self.mark_unimplemented("page_down");
     }
 
     pub fn page_up(&mut self) {
-        // Implementation for page up
+        self.mark_unimplemented("page_up");
     }
 
     pub fn move_cursor_to_start(&mut self) {
-        // Implementation for moving cursor to start
+        self.mark_unimplemented("move_cursor_to_start");
     }
 
     pub fn move_cursor_to_end(&mut self) {
-        // Implementation for moving cursor to end
+        self.mark_unimplemented("move_cursor_to_end");
     }
 
     pub fn select_next_tab(&mut self) {
@@ -2279,6 +2278,12 @@ impl App {
 
     pub fn tree_item_at(&self, visual_index: usize) -> Option<TreeItem> {
         self.get_tree_item_at_visual_index(visual_index)
+    }
+
+    fn mark_unimplemented(&mut self, feature: &str) {
+        let msg = format!("Not implemented: {}", feature);
+        self.set_status_message(msg.clone());
+        logging::warn(&msg);
     }
 
     /// Sets a status message with timestamp

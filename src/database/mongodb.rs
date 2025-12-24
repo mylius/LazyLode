@@ -247,7 +247,7 @@ impl DatabaseConnection for MongoConnection {
         params: &QueryParams,
     ) -> Result<QueryResult> {
         if let Some(db) = &self.current_db {
-            logging::debug(&format!("Fetching data from table: {}", table))?;
+            logging::debug(&format!("Fetching data from table: {}", table));
 
             let collection = db.collection::<Document>(table);
 
@@ -257,7 +257,7 @@ impl DatabaseConnection for MongoConnection {
                     match serde_json::from_str(where_clause) {
                         Ok(filter) => filter,
                         Err(e) => {
-                            logging::error(&format!("Invalid MongoDB filter: {}", e))?;
+                            logging::error(&format!("Invalid MongoDB filter: {}", e));
                             doc! {}
                         }
                     }
@@ -275,7 +275,7 @@ impl DatabaseConnection for MongoConnection {
             let mut sample_cursor = collection.find(doc! {}).limit(10).await?;
 
             while let Some(doc) = sample_cursor.try_next().await? {
-                logging::debug(&format!("Sample doc: {:?}", doc))?;
+                logging::debug(&format!("Sample doc: {:?}", doc));
                 self.collect_field_names("", &doc, &mut columns);
             }
 
@@ -287,7 +287,7 @@ impl DatabaseConnection for MongoConnection {
             let mut find_builder = collection.find(filter).limit(limit);
             if let Some(order_by) = &params.order_by {
                 if let Some(sort_doc) = self.parse_sort_expression(order_by).await {
-                    logging::debug(&format!("Applying sort: {:?}", sort_doc))?;
+                    logging::debug(&format!("Applying sort: {:?}", sort_doc));
                     find_builder = find_builder.sort(sort_doc);
                 }
             }

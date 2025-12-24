@@ -308,7 +308,7 @@ impl ResultsPane {
                 app.config.keymap.next_page_key,
             )
         } else {
-            String::from("No active table")
+            "No active table".to_string()
         };
 
         frame.render_widget(

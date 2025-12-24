@@ -220,7 +220,8 @@ impl ConnectionManager {
 
             Ok(prefetched_schemas)
         } else {
-            Err(anyhow::anyhow!("Connection not found: {}", connection_name))
+            Err(anyhow::anyhow!("Connection not found: {}", connection_name)
+                .context(format!("Failed to prefetch schemas for connection: {}", connection_name)))
         }
     }
 
@@ -232,7 +233,8 @@ impl ConnectionManager {
         if let Some(connection) = self.connections.get_mut(connection_name) {
             connection.list_tables(schema_name).await
         } else {
-            Err(anyhow::anyhow!("Connection not found: {}", connection_name))
+            Err(anyhow::anyhow!("Connection not found: {}", connection_name)
+                .context(format!("Failed to prefetch schemas for connection: {}", connection_name)))
         }
     }
 

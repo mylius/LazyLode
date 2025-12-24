@@ -29,20 +29,16 @@ pub fn install_panic_hook() {
             .map(|loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
             .unwrap_or_else(|| "unknown location".to_string());
 
-        if let Err(e) = logging::error(&format!(
+        logging::error(&format!(
             "PANIC:\nMessage: {}\nLocation: {}",
             panic_message, location
-        )) {
-            eprintln!("Failed to log panic: {}", e);
-        }
+        ));
 
         if std::env::var("RUST_BACKTRACE").unwrap_or_default() == "1" {
-            if let Err(e) = logging::error(&format!(
+            logging::error(&format!(
                 "Backtrace:\n{:?}",
                 std::backtrace::Backtrace::capture()
-            )) {
-                eprintln!("Failed to log backtrace: {}", e);
-            }
+            ));
         }
     }));
 }
@@ -54,16 +50,16 @@ pub struct TerminalSession {
 impl TerminalSession {
     pub fn new() -> Result<Self> {
         enable_raw_mode().context("Failed to enable raw mode")?;
-        logging::debug("Enabled raw mode")?;
+        logging::debug("Enabled raw mode");
 
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
             .context("Failed to enter alternate screen")?;
-        logging::debug("Entered alternate screen")?;
+        logging::debug("Entered alternate screen");
 
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend).context("Failed to create terminal")?;
-        logging::debug("Created terminal")?;
+        logging::debug("Created terminal");
 
         Ok(Self { terminal })
     }

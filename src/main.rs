@@ -19,7 +19,7 @@ use anyhow::Result;
 async fn main() -> Result<()> {
     logging::init_logger()?;
     install_panic_hook();
-    logging::info("Starting LazyLode Database Explorer")?;
+    logging::info("Starting LazyLode Database Explorer");
 
     let mut session = TerminalSession::new()?;
     let app = App::new_with_async_connections().await?;
@@ -27,10 +27,10 @@ async fn main() -> Result<()> {
     let res = Runner::new(session.terminal_mut(), app).run().await;
 
     if let Err(err) = res {
-        logging::error(&format!("Application error: {}", err))?;
+        logging::error(&format!("Application error: {}", err));
         return Err(anyhow::anyhow!(err));
     }
 
-    logging::info("Application terminated successfully")?;
+    logging::info("Application terminated successfully");
     Ok(())
 }

@@ -40,9 +40,13 @@ impl SqliteConnection {
         format!("\"{}\"", sanitized)
     }
 
-    fn map_row_to_strings(row: &SyncRow<'_>, col_count: usize) -> Vec<String> {
+    fn map_row_to_strings(row: &SyncRow<'_>, col_count: usize) -> rusqlite::Result<Vec<String>> {
         (0..col_count)
-            .map(|i| Self::value_ref_to_string(row.get_ref(i).unwrap()))
+            .map(|i| {
+                row.get_ref(i)
+                    .map(Self::value_ref_to_string)
+                    .map_err(|_| rusqlite::Error::InvalidColumnIndex(i))
+            })
             .collect()
     }
 }
@@ -108,7 +112,7 @@ impl DatabaseConnection for SqliteConnection {
                     let mut rows_vec = Vec::new();
                     let mut rows = stmt.query([])?;
                     while let Some(row) = rows.next()? {
-                        rows_vec.push(SqliteConnection::map_row_to_strings(row, col_count));
+                        rows_vec.push(SqliteConnection::map_row_to_strings(row, col_count)?);
                     }
                     let affected_rows = rows_vec.len() as u64;
                     Ok(QueryResult { columns, rows: rows_vec, affected_rows })

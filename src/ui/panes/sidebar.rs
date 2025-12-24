@@ -21,8 +21,7 @@ impl SidebarPane {
         logging::debug(&format!(
             "Rendering sidebar with {} connections",
             app.connection_tree.len()
-        ))
-        .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+        ));
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -55,8 +54,7 @@ impl SidebarPane {
                 connection.is_expanded,
                 connection.status,
                 connection.databases.len()
-            ))
-            .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+            ));
 
             let expanded_symbol = if connection.is_expanded { "▼" } else { "▶" };
             let status_symbol = match connection.status {
@@ -96,8 +94,7 @@ impl SidebarPane {
                     "Connection {} is expanded, showing {} databases",
                     connection.connection_config.name,
                     connection.databases.len()
-                ))
-                .unwrap_or_else(|e| eprintln!("Logging error: {}", e));
+                ));
 
                 for (_db_idx, database) in connection.databases.iter().enumerate() {
                     let db_expanded = if database.is_expanded { "▼" } else { "▶" };
