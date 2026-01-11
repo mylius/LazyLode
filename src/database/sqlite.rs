@@ -240,6 +240,39 @@ impl DatabaseConnection for SqliteConnection {
             Err(anyhow::anyhow!("Not connected to database"))
         }
     }
+
+    async fn get_columns(&self, _schema: &str, table: &str) -> Result<Vec<ColumnInfo>> {
+        if let Some(conn) = &self.conn {
+            let table_name = table.to_string();
+            let columns = conn
+                .call(move |c: &mut rusqlite::Connection| -> tokio_rusqlite::Result<Vec<ColumnInfo>> {
+                    let query = format!("PRAGMA table_info({})", Self::sanitize_identifier(&table_name));
+                    let mut stmt = c.prepare(&query)?;
+                    let mut rows = stmt.query([])?;
+
+                    let mut columns = Vec::new();
+                    while let Some(row) = rows.next()? {
+                        let column_name: String = row.get(1)?;
+                        let data_type: String = row.get(2)?;
+                        let not_null: i32 = row.get(3)?;
+                        let pk_position: i32 = row.get(5)?;
+
+                        columns.push(ColumnInfo {
+                            name: column_name,
+                            data_type,
+                            is_nullable: not_null == 0,
+                            is_primary_key: pk_position > 0,
+                        });
+                    }
+                    Ok(columns)
+                })
+                .await?;
+
+            Ok(columns)
+        } else {
+            Err(anyhow::anyhow!("Not connected to database"))
+        }
+    }
 }
 
 

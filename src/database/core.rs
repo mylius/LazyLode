@@ -93,4 +93,7 @@ pub trait DatabaseConnection: Send + Sync {
         table: &str,
         column: &str,
     ) -> Result<Option<ForeignKeyTarget>>;
+
+    /// Get column information including primary key status
+    async fn get_columns(&self, schema: &str, table: &str) -> Result<Vec<ColumnInfo>>;
 }

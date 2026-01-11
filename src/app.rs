@@ -76,6 +76,7 @@ pub struct QueryState {
     pub sort_column: Option<String>,
     pub sort_order: Option<bool>,
     pub rows_marked_for_deletion: HashSet<usize>,
+    pub primary_key_columns: Vec<String>,
 }
 
 /// Represents an item in the connection tree.
@@ -165,6 +166,9 @@ pub struct App {
     /// Pending numeric repeat count for vim-style actions in Normal mode
     pub pending_count: Option<usize>,
     pub last_key_was_y: bool,
+    pub editing_cell_position: Option<(usize, usize)>,
+    pub editing_cell_original: String,
+    pub cell_text_input: crate::ui::components::text_input::TextInput,
 }
 
 impl App {
@@ -212,6 +216,9 @@ impl App {
             results_pane: ResultsPane::new(),
             pending_count: None,
             last_key_was_y: false,
+            editing_cell_position: None,
+            editing_cell_original: String::new(),
+            cell_text_input: crate::ui::components::text_input::TextInput::new(),
         };
 
         app.load_connections();
@@ -275,6 +282,9 @@ impl App {
             results_pane: ResultsPane::new(),
             pending_count: None,
             last_key_was_y: false,
+            editing_cell_position: None,
+            editing_cell_original: String::new(),
+            cell_text_input: crate::ui::components::text_input::TextInput::new(),
         };
 
         app.load_connections();
@@ -522,7 +532,21 @@ impl App {
                 rows_marked_for_deletion: HashSet::new(),
                 where_clause: params.where_clause.clone().unwrap_or_default(),
                 order_by_clause: String::new(),
+                primary_key_columns: Vec::new(),
             };
+
+            let pk_columns = match db.get_columns(&schema, &table).await {
+                Ok(cols) => cols
+                    .iter()
+                    .filter(|c| c.is_primary_key)
+                    .map(|c| c.name.clone())
+                    .collect::<Vec<String>>(),
+                Err(e) => {
+                    crate::logging::warn(&format!("Could not fetch PKs: {}", e));
+                    Vec::new()
+                }
+            };
+            query_state.primary_key_columns = pk_columns;
 
             let total_records = db
                 .count_table_rows(&schema, &table, params.where_clause.as_deref())
@@ -1665,6 +1689,248 @@ impl App {
         Ok(())
     }
 
+    pub fn is_editing_cell(&self) -> bool {
+        self.editing_cell_position.is_some()
+    }
+
+    pub fn enter_cell_edit_mode(&mut self) {
+        if let Some(tab_idx) = self.selected_result_tab_index {
+            if let Some((_, result, _)) = self.result_tabs.get(tab_idx) {
+                let col = self.cursor_position.0;
+                let row = self.cursor_position.1;
+
+                if let Some(row_data) = result.rows.get(row) {
+                    if let Some(cell_value) = row_data.get(col) {
+                        self.editing_cell_position = Some((col, row));
+                        self.editing_cell_original = cell_value.clone();
+                        self.cell_text_input.set_content(cell_value.clone());
+                        self.cell_text_input.move_cursor_to_end();
+                        self.cell_text_input.set_mode(crate::navigation::types::VimMode::Insert);
+                        self.input_mode = InputMode::Insert;
+
+                        crate::logging::debug(&format!(
+                            "Entered cell edit at ({}, {}): '{}'",
+                            col, row, cell_value
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn cancel_cell_edit(&mut self) {
+        if self.editing_cell_position.is_some() {
+            crate::logging::debug("Cancelled cell edit");
+            self.editing_cell_position = None;
+            self.editing_cell_original.clear();
+            self.cell_text_input.set_content(String::new());
+            self.cell_text_input.set_mode(crate::navigation::types::VimMode::Normal);
+            self.input_mode = InputMode::Normal;
+        }
+    }
+
+    fn validate_value_for_type(value: &str, data_type: &str) -> bool {
+        if value.is_empty() {
+            return true;
+        }
+
+        let type_lower = data_type.to_lowercase();
+        
+        if type_lower.contains("int") || type_lower == "serial" || type_lower == "bigserial" || type_lower == "smallserial" {
+            return value.parse::<i64>().is_ok();
+        }
+        
+        if type_lower.contains("float") || type_lower.contains("double") || type_lower.contains("real") || type_lower.contains("numeric") || type_lower.contains("decimal") {
+            return value.parse::<f64>().is_ok();
+        }
+        
+        if type_lower == "bool" || type_lower == "boolean" {
+            let val_lower = value.to_lowercase();
+            return val_lower == "true" || val_lower == "false" || val_lower == "t" || val_lower == "f" || val_lower == "1" || val_lower == "0" || val_lower == "yes" || val_lower == "no";
+        }
+        
+        if type_lower.contains("date") {
+            return chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok()
+                || chrono::NaiveDate::parse_from_str(value, "%Y/%m/%d").is_ok();
+        }
+        
+        if type_lower.contains("time") && !type_lower.contains("interval") {
+            if type_lower.contains("timestamp") {
+                return chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S").is_ok()
+                    || chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S").is_ok()
+                    || chrono::DateTime::parse_from_rfc3339(value).is_ok();
+            } else {
+                return chrono::NaiveTime::parse_from_str(value, "%H:%M:%S").is_ok()
+                    || chrono::NaiveTime::parse_from_str(value, "%H:%M:%S%.f").is_ok();
+            }
+        }
+        
+        true
+    }
+
+    pub async fn commit_cell_edit(&mut self) -> anyhow::Result<()> {
+        let (edit_col, edit_row) = match self.editing_cell_position.take() {
+            Some(pos) => pos,
+            None => return Ok(()),
+        };
+
+        let new_value = self.cell_text_input.content().to_string();
+        self.input_mode = InputMode::Normal;
+        self.cell_text_input.set_mode(crate::navigation::types::VimMode::Normal);
+
+        let (conn_name, schema, table) = match &self.last_table_info {
+            Some(info) => info.clone(),
+            None => {
+                self.set_status_message("No table context".to_string());
+                return Ok(());
+            }
+        };
+
+        let (columns, pk_columns, original_row) = if let Some(tab_idx) = self.selected_result_tab_index {
+            if let Some((_, result, state)) = self.result_tabs.get(tab_idx) {
+                let cols = result.columns.clone();
+                let pks = state.primary_key_columns.clone();
+                let row = result.rows.get(edit_row).cloned();
+                (cols, pks, row)
+            } else {
+                (Vec::new(), Vec::new(), None)
+            }
+        } else {
+            (Vec::new(), Vec::new(), None)
+        };
+
+        let original_row = match original_row {
+            Some(row) => row,
+            None => {
+                self.set_status_message("Row not found".to_string());
+                return Ok(());
+            }
+        };
+
+        let column_name = match columns.get(edit_col) {
+            Some(name) => name.clone(),
+            None => {
+                self.set_status_message("Column not found".to_string());
+                return Ok(());
+            }
+        };
+
+        if let Some(connection) = self.connection_manager.get_connection(&conn_name) {
+            let column_info = match connection.get_columns(&schema, &table).await {
+                Ok(cols) => cols.into_iter().find(|c| c.name == column_name),
+                Err(e) => {
+                    crate::logging::warn(&format!("Could not fetch column info: {}", e));
+                    None
+                }
+            };
+
+            if let Some(col_info) = column_info {
+                if new_value.is_empty() {
+                    if !col_info.is_nullable {
+                        self.set_status_message(format!(
+                            "Column '{}' does not allow NULL values",
+                            column_name
+                        ));
+                        return Ok(());
+                    }
+                } else if !Self::validate_value_for_type(&new_value, &col_info.data_type) {
+                    self.set_status_message(format!(
+                        "Invalid value for type {}: '{}'",
+                        col_info.data_type, new_value
+                    ));
+                    return Ok(());
+                }
+            }
+        }
+
+        let where_clause = if !pk_columns.is_empty() {
+            let where_parts: Vec<String> = pk_columns
+                .iter()
+                .filter_map(|pk_col| {
+                    let idx = columns.iter().position(|c| c == pk_col)?;
+                    let val = original_row.get(idx)?;
+                    Some(if val == "NULL" {
+                        format!("\"{}\" IS NULL", pk_col)
+                    } else {
+                        format!("\"{}\" = '{}'", pk_col, val.replace('\'', "''"))
+                    })
+                })
+                .collect();
+            where_parts.join(" AND ")
+        } else {
+            let where_parts: Vec<String> = columns
+                .iter()
+                .zip(original_row.iter())
+                .map(|(col, val)| {
+                    if val == "NULL" {
+                        format!("\"{}\" IS NULL", col)
+                    } else {
+                        format!("\"{}\" = '{}'", col, val.replace('\'', "''"))
+                    }
+                })
+                .collect();
+            where_parts.join(" AND ")
+        };
+
+        let db_type = self.connection_tree
+            .iter()
+            .find(|item| item.connection_config.name == conn_name)
+            .map(|item| item.connection_config.db_type.clone())
+            .unwrap_or(crate::database::DatabaseType::Postgres);
+
+        let update_query = match db_type {
+            crate::database::DatabaseType::SQLite => {
+                let escaped_value = if new_value.is_empty() {
+                    "''".to_string()
+                } else {
+                    format!("'{}'", new_value.replace('\'', "''"))
+                };
+                format!(
+                    "UPDATE \"{}\" SET \"{}\" = {} WHERE {}",
+                    table, column_name, escaped_value, where_clause
+                )
+            }
+            crate::database::DatabaseType::MongoDB => {
+                self.set_status_message("MongoDB updates coming soon".to_string());
+                return Ok(());
+            }
+            _ => {
+                let escaped_value = if new_value.is_empty() {
+                    "''".to_string()
+                } else {
+                    format!("'{}'", new_value.replace('\'', "''"))
+                };
+                format!(
+                    "UPDATE \"{}\".\"{}\" SET \"{}\" = {} WHERE {}",
+                    schema, table, column_name, escaped_value, where_clause
+                )
+            }
+        };
+
+        crate::logging::info(&format!("Executing: {}", update_query));
+
+        if let Some(connection) = self.connection_manager.get_connection(&conn_name) {
+            match connection.execute_query(&update_query).await {
+                Ok(result) => {
+                    if result.affected_rows > 0 {
+                        self.set_status_message(format!("Updated {} row(s)", result.affected_rows));
+                        if let Err(e) = self.refresh_results().await {
+                            crate::logging::error(&format!("Refresh failed: {}", e));
+                        }
+                    } else {
+                        self.set_status_message("No rows updated".to_string());
+                    }
+                }
+                Err(e) => {
+                    self.set_status_message(format!("Update failed: {}", e));
+                    crate::logging::error(&format!("UPDATE error: {}", e));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Toggles (expand/collapse) a tree item based on its visual index.
     pub async fn toggle_tree_item(&mut self, visual_index: usize) -> Result<()> {
         if let Some(tree_item) = self.get_tree_item_at_visual_index(visual_index) {
@@ -1720,7 +1986,7 @@ impl App {
                                                     .position(|(name, _, _)| name == &tab_name);
 
                                                 // Initialize new query state
-                                                let query_state = QueryState {
+                                                let mut query_state = QueryState {
                                                     page_size: 50, // Default page size
                                                     current_page: 1,
                                                     total_pages: Some(1),
@@ -1730,7 +1996,21 @@ impl App {
                                                     rows_marked_for_deletion: HashSet::new(),
                                                     where_clause: String::new(),
                                                     order_by_clause: String::new(),
+                                                    primary_key_columns: Vec::new(),
                                                 };
+
+                                                let pk_columns = match db_connection.get_columns(&schema.name, table).await {
+                                                    Ok(cols) => cols
+                                                        .iter()
+                                                        .filter(|c| c.is_primary_key)
+                                                        .map(|c| c.name.clone())
+                                                        .collect::<Vec<String>>(),
+                                                    Err(e) => {
+                                                        crate::logging::warn(&format!("Could not fetch PKs: {}", e));
+                                                        Vec::new()
+                                                    }
+                                                };
+                                                query_state.primary_key_columns = pk_columns;
 
                                                 // Compute totals immediately
                                                 let total_records = match db_connection

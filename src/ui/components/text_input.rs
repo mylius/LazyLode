@@ -52,6 +52,14 @@ impl TextInput {
         self.vim_editor.insert_char_at_cursor(c);
     }
 
+    pub fn set_content(&mut self, content: String) {
+        self.vim_editor.set_content(content);
+    }
+
+    pub fn move_cursor_to_end(&mut self) {
+        self.vim_editor.move_to_line_end();
+    }
+
     pub fn display_text_with_cursor(&self) -> String {
         let content = self.vim_editor.content();
         let cursor = self.cursor_position().min(content.len());

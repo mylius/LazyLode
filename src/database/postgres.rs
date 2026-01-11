@@ -466,4 +466,48 @@ impl DatabaseConnection for PostgresConnection {
             Ok(None)
         }
     }
+
+    async fn get_columns(&self, schema: &str, table: &str) -> Result<Vec<ColumnInfo>> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Not connected to database"))?;
+
+        let query = "
+            SELECT
+                c.column_name,
+                c.data_type,
+                c.is_nullable,
+                CASE WHEN tc.constraint_type = 'PRIMARY KEY' THEN true ELSE false END as is_primary_key
+            FROM information_schema.columns c
+            LEFT JOIN information_schema.key_column_usage kcu
+              ON c.table_schema = kcu.table_schema
+             AND c.table_name = kcu.table_name
+             AND c.column_name = kcu.column_name
+            LEFT JOIN information_schema.table_constraints tc
+              ON kcu.constraint_name = tc.constraint_name
+             AND kcu.table_schema = tc.table_schema
+             AND tc.constraint_type = 'PRIMARY KEY'
+            WHERE c.table_schema = $1 AND c.table_name = $2
+            ORDER BY c.ordinal_position
+        ";
+
+        let rows = client.query(query, &[&schema, &table]).await?;
+
+        let columns: Vec<ColumnInfo> = rows
+            .iter()
+            .map(|row| {
+                let is_nullable: String = row.get(2);
+                let is_pk: Option<bool> = row.get(3);
+                ColumnInfo {
+                    name: row.get(0),
+                    data_type: row.get(1),
+                    is_nullable: is_nullable == "YES",
+                    is_primary_key: is_pk.unwrap_or(false),
+                }
+            })
+            .collect();
+
+        Ok(columns)
+    }
 }

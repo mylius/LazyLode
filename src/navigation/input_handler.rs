@@ -101,6 +101,26 @@ impl NavigationInputHandler {
             return Ok(());
         }
 
+        // Handle cell editing input
+        if app.is_editing_cell() {
+            match key {
+                KeyCode::Esc => {
+                    app.cancel_cell_edit();
+                    return Ok(());
+                }
+                KeyCode::Enter => {
+                    if let Err(e) = app.commit_cell_edit().await {
+                        app.set_status_message(format!("Update failed: {}", e));
+                    }
+                    return Ok(());
+                }
+                _ => {
+                    app.cell_text_input.handle_key(key, modifiers);
+                    return Ok(());
+                }
+            }
+        }
+
         // Handle pane-specific input based on input mode
         match app.active_pane {
             Pane::Connections => {
@@ -302,6 +322,12 @@ impl NavigationInputHandler {
             }
             // Mode switching actions - sync with app input mode
             crate::navigation::types::NavigationAction::EnterInsertMode => {
+                if app.active_pane == Pane::Results
+                    && app.input_mode == crate::app::InputMode::Normal
+                {
+                    app.enter_cell_edit_mode();
+                    return true;
+                }
                 app.input_mode = crate::app::InputMode::Insert;
                 app.navigation_manager.handle_action(action);
                 // Sync app cursor position with vim editor cursor position

@@ -358,4 +358,28 @@ impl DatabaseConnection for MongoConnection {
     ) -> Result<Option<ForeignKeyTarget>> {
         Ok(None)
     }
+
+    async fn get_columns(&self, _schema: &str, table: &str) -> Result<Vec<ColumnInfo>> {
+        if let Some(db) = &self.current_db {
+            let collection = db.collection::<Document>(table);
+            let mut cursor = collection.find(doc! {}).limit(1).await?;
+
+            let mut columns = Vec::new();
+
+            if let Some(doc) = cursor.try_next().await? {
+                for key in doc.keys() {
+                    columns.push(ColumnInfo {
+                        name: key.clone(),
+                        data_type: "Mixed".to_string(),
+                        is_nullable: true,
+                        is_primary_key: key == "_id",
+                    });
+                }
+            }
+
+            Ok(columns)
+        } else {
+            Err(anyhow::anyhow!("Not connected to database"))
+        }
+    }
 }

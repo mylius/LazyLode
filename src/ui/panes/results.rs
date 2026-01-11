@@ -233,8 +233,15 @@ impl ResultsPane {
                             && col_idx == app.cursor_position.0;
                         let is_marked = query_state.rows_marked_for_deletion.contains(&row_idx);
 
+                        let is_editing = app.editing_cell_position
+                            .map_or(false, |(edit_col, edit_row)| {
+                                edit_row == row_idx && edit_col == col_idx
+                            });
+
                         let base_bg = if is_marked {
                             Color::Rgb(139, 0, 0)
+                        } else if is_editing {
+                            app.config.theme.accent_color()
                         } else if is_selected {
                             app.config.theme.accent_color()
                         } else if (row_idx + start_row) % 2 == 0 {
@@ -247,7 +254,13 @@ impl ResultsPane {
                             .fg(app.config.theme.text_color())
                             .bg(base_bg);
 
-                        Cell::from(cell.as_str()).style(style)
+                        let display_value = if is_editing {
+                            app.cell_text_input.display_text_with_cursor()
+                        } else {
+                            cell.as_str().to_string()
+                        };
+
+                        Cell::from(display_value).style(style)
                     }));
 
                     Row::new(row_cells)
